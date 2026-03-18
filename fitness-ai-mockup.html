@@ -1,0 +1,1203 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FitnessAI Connect – Mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #13131a;
+    --surface2: #1c1c27;
+    --border: rgba(255,255,255,0.07);
+    --primary: #6ee7b7;
+    --primary-dim: rgba(110,231,183,0.12);
+    --accent: #f472b6;
+    --accent-dim: rgba(244,114,182,0.12);
+    --blue: #60a5fa;
+    --blue-dim: rgba(96,165,250,0.12);
+    --orange: #fb923c;
+    --text: #f1f5f9;
+    --text-2: #94a3b8;
+    --text-3: #475569;
+    --font-display: 'Syne', sans-serif;
+    --font-body: 'DM Sans', sans-serif;
+    --r: 28px;
+    --r-sm: 16px;
+    --phone-w: 390px;
+    --phone-h: 844px;
+  }
+
+  body {
+    background: #060609;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 40px 20px 60px;
+    font-family: var(--font-body);
+    color: var(--text);
+  }
+
+  /* ── PAGE HEADER ── */
+  .page-header {
+    text-align: center;
+    margin-bottom: 36px;
+  }
+  .page-header h1 {
+    font-family: var(--font-display);
+    font-size: clamp(22px, 4vw, 32px);
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, var(--primary) 0%, var(--blue) 60%, var(--accent) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .page-header p { color: var(--text-2); font-size: 14px; margin-top: 6px; }
+
+  /* ── INSTRUCTIONS ── */
+  .instructions {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 20px;
+    margin-bottom: 32px;
+    font-size: 13px;
+    color: var(--text-2);
+    max-width: 700px;
+    text-align: center;
+    line-height: 1.6;
+  }
+  .instructions b { color: var(--primary); }
+
+  /* ── PHONE FRAME ── */
+  .phone-scene {
+    perspective: 1200px;
+  }
+  .phone-frame {
+    width: var(--phone-w);
+    height: var(--phone-h);
+    background: #1a1a1a;
+    border-radius: 54px;
+    border: 1.5px solid #333;
+    box-shadow:
+      0 0 0 1px #111,
+      0 30px 80px rgba(0,0,0,0.8),
+      inset 0 1px 0 rgba(255,255,255,0.08);
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Notch */
+  .phone-notch {
+    position: absolute;
+    top: 0; left: 50%; transform: translateX(-50%);
+    width: 126px; height: 34px;
+    background: #1a1a1a;
+    border-radius: 0 0 22px 22px;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .notch-camera { width: 12px; height: 12px; border-radius: 50%; background: #222; border: 1px solid #333; }
+  .notch-speaker { width: 52px; height: 5px; border-radius: 3px; background: #222; }
+
+  /* Side buttons */
+  .phone-btn {
+    position: absolute;
+    background: #222;
+    border-radius: 3px;
+  }
+  .btn-vol-up { left: -3px; top: 140px; width: 4px; height: 36px; }
+  .btn-vol-down { left: -3px; top: 188px; width: 4px; height: 36px; }
+  .btn-power { right: -3px; top: 168px; width: 4px; height: 56px; }
+
+  /* ── SCREEN ── */
+  .phone-screen {
+    position: absolute;
+    inset: 8px;
+    border-radius: 46px;
+    background: var(--bg);
+    overflow: hidden;
+  }
+
+  /* ── STATUS BAR ── */
+  .status-bar {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 44px;
+    padding: 14px 28px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 50;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    background: transparent;
+  }
+  .status-time { font-family: var(--font-display); font-size: 15px; font-weight: 700; }
+  .status-icons { display: flex; gap: 6px; align-items: center; }
+  .status-icons svg { width: 16px; height: 16px; }
+
+  /* ── SCREENS ── */
+  .screen {
+    position: absolute;
+    inset: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-top: 50px;
+    padding-bottom: 90px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    transform: translateX(30px);
+    scrollbar-width: none;
+  }
+  .screen::-webkit-scrollbar { display: none; }
+  .screen.active {
+    opacity: 1;
+    pointer-events: all;
+    transform: translateX(0);
+  }
+
+  /* ── BOTTOM NAV ── */
+  .bottom-nav {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 82px;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(20px);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: flex-start;
+    padding-top: 10px;
+    z-index: 60;
+    border-radius: 0 0 38px 38px;
+  }
+  .nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    padding: 4px 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .nav-icon {
+    width: 26px; height: 26px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 10px;
+    transition: all 0.25s cubic-bezier(0.34,1.56,0.64,1);
+  }
+  .nav-item.active .nav-icon {
+    background: var(--primary-dim);
+    transform: scale(1.1);
+  }
+  .nav-item svg { width: 22px; height: 22px; stroke: var(--text-3); transition: stroke 0.2s; }
+  .nav-item.active svg { stroke: var(--primary); }
+  .nav-label { font-size: 10px; color: var(--text-3); transition: color 0.2s; font-weight: 500; }
+  .nav-item.active .nav-label { color: var(--primary); }
+
+  /* ── COMMON COMPONENTS ── */
+  .section-title {
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 800;
+    padding: 0 20px;
+    margin-bottom: 16px;
+    letter-spacing: -0.4px;
+  }
+  .sub-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--text-3);
+    padding: 0 20px;
+    margin-bottom: 10px;
+  }
+  .card {
+    background: var(--surface);
+    border-radius: var(--r-sm);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 10px;
+    border-radius: 100px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .pill.green { background: var(--primary-dim); color: var(--primary); }
+  .pill.pink { background: var(--accent-dim); color: var(--accent); }
+  .pill.blue { background: var(--blue-dim); color: var(--blue); }
+  .pill.orange { background: rgba(251,146,60,0.12); color: var(--orange); }
+
+  /* ── SCREEN 1: HOME ── */
+  #screen-home .hero-greeting {
+    padding: 8px 20px 20px;
+  }
+  #screen-home .greeting-sub {
+    color: var(--text-2); font-size: 14px; margin-bottom: 4px;
+  }
+  #screen-home .greeting-name {
+    font-family: var(--font-display);
+    font-size: 28px; font-weight: 800; letter-spacing: -0.5px;
+  }
+  #screen-home .greeting-name span { color: var(--primary); }
+
+  .today-card {
+    margin: 0 20px 20px;
+    background: linear-gradient(135deg, #0d2b20 0%, #0a1a2e 100%);
+    border-radius: var(--r-sm);
+    border: 1px solid rgba(110,231,183,0.2);
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .today-card::before {
+    content: '';
+    position: absolute;
+    top: -40px; right: -40px;
+    width: 140px; height: 140px;
+    background: radial-gradient(circle, rgba(110,231,183,0.15) 0%, transparent 70%);
+  }
+  .today-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.2px; color: var(--primary); margin-bottom: 8px; }
+  .today-title { font-family: var(--font-display); font-size: 20px; font-weight: 700; margin-bottom: 4px; letter-spacing: -0.3px; }
+  .today-meta { font-size: 13px; color: var(--text-2); margin-bottom: 16px; }
+  .today-stats { display: flex; gap: 16px; margin-bottom: 18px; }
+  .today-stat { }
+  .today-stat-val { font-family: var(--font-display); font-size: 18px; font-weight: 700; }
+  .today-stat-key { font-size: 11px; color: var(--text-2); margin-top: 2px; }
+  .btn-start {
+    background: var(--primary);
+    color: #0a2318;
+    border: none;
+    border-radius: 12px;
+    padding: 12px 20px;
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    width: 100%;
+    transition: all 0.2s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn-start:active { transform: scale(0.97); opacity: 0.9; }
+
+  .ring-section {
+    padding: 0 20px 20px;
+    display: flex;
+    gap: 12px;
+  }
+  .ring-card {
+    flex: 1;
+    background: var(--surface);
+    border-radius: var(--r-sm);
+    border: 1px solid var(--border);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .ring-wrap { position: relative; width: 56px; height: 56px; }
+  .ring-svg { width: 56px; height: 56px; transform: rotate(-90deg); }
+  .ring-track { fill: none; stroke-width: 5; }
+  .ring-fill { fill: none; stroke-width: 5; stroke-linecap: round; transition: stroke-dashoffset 1.5s cubic-bezier(0.4,0,0.2,1); }
+  .ring-val {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-display);
+    font-size: 13px; font-weight: 700;
+  }
+  .ring-key { font-size: 11px; color: var(--text-2); font-weight: 500; }
+
+  .ai-insight {
+    margin: 0 20px 20px;
+    background: linear-gradient(135deg, rgba(96,165,250,0.08) 0%, rgba(244,114,182,0.08) 100%);
+    border-radius: var(--r-sm);
+    border: 1px solid rgba(96,165,250,0.15);
+    padding: 16px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .ai-icon {
+    width: 36px; height: 36px; flex-shrink: 0;
+    background: linear-gradient(135deg, var(--blue), var(--accent));
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+  }
+  .ai-text { font-size: 13px; color: var(--text-2); line-height: 1.5; }
+  .ai-text b { color: var(--text); }
+
+  .trainer-strip {
+    padding: 0 20px 20px;
+  }
+  .trainer-card-mini {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: background 0.2s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .trainer-card-mini:active { background: var(--surface2); }
+  .trainer-avatar {
+    width: 44px; height: 44px; border-radius: 14px;
+    background: linear-gradient(135deg, var(--primary), var(--blue));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; flex-shrink: 0;
+  }
+  .trainer-name { font-family: var(--font-display); font-weight: 700; font-size: 15px; }
+  .trainer-meta { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+  .trainer-btn {
+    margin-left: auto;
+    background: var(--primary-dim);
+    color: var(--primary);
+    border: none; border-radius: 10px;
+    padding: 8px 14px;
+    font-size: 12px; font-weight: 600;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* ── SCREEN 2: WORKOUT ── */
+  #screen-workout .workout-hero {
+    margin: 8px 20px 16px;
+    background: linear-gradient(135deg, #1a0d2e 0%, #0d0a2e 100%);
+    border-radius: var(--r-sm);
+    border: 1px solid rgba(244,114,182,0.2);
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  #screen-workout .workout-hero::after {
+    content: '';
+    position: absolute;
+    bottom: -30px; right: -30px;
+    width: 120px; height: 120px;
+    background: radial-gradient(circle, rgba(244,114,182,0.2) 0%, transparent 70%);
+  }
+  .wk-category { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.2px; color: var(--accent); margin-bottom: 8px; }
+  .wk-title { font-family: var(--font-display); font-size: 22px; font-weight: 800; letter-spacing: -0.4px; margin-bottom: 4px; }
+  .wk-sub { font-size: 13px; color: var(--text-2); margin-bottom: 16px; }
+  .wk-badges { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+  .btn-go {
+    background: var(--accent);
+    color: white;
+    border: none; border-radius: 12px;
+    padding: 13px 20px;
+    font-family: var(--font-display);
+    font-size: 14px; font-weight: 700;
+    cursor: pointer; width: 100%;
+    -webkit-tap-highlight-color: transparent;
+    transition: all 0.2s;
+  }
+  .btn-go:active { transform: scale(0.97); }
+
+  .exercise-list { padding: 0 20px; }
+  .ex-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .ex-item:active { background: var(--surface2); }
+  .ex-num {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-display); font-size: 14px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .ex-info { flex: 1; }
+  .ex-name { font-weight: 600; font-size: 14px; margin-bottom: 3px; }
+  .ex-detail { font-size: 12px; color: var(--text-2); }
+  .ex-check {
+    width: 28px; height: 28px; border-radius: 50%;
+    border: 2px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.25s;
+    cursor: pointer;
+    flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .ex-item.done .ex-check {
+    background: var(--primary);
+    border-color: var(--primary);
+  }
+  .ex-item.done .ex-name { text-decoration: line-through; color: var(--text-3); }
+  .ex-item.done { opacity: 0.6; }
+
+  /* ── SCREEN 3: PROGRESS ── */
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 20px 20px; }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 16px;
+  }
+  .stat-card-label { font-size: 11px; color: var(--text-3); font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px; }
+  .stat-card-val { font-family: var(--font-display); font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
+  .stat-card-sub { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+  .stat-card.accent-green { border-color: rgba(110,231,183,0.2); background: linear-gradient(135deg, rgba(110,231,183,0.06), var(--surface)); }
+  .stat-card.accent-pink { border-color: rgba(244,114,182,0.2); background: linear-gradient(135deg, rgba(244,114,182,0.06), var(--surface)); }
+  .stat-card.accent-blue { border-color: rgba(96,165,250,0.2); background: linear-gradient(135deg, rgba(96,165,250,0.06), var(--surface)); }
+  .stat-card.accent-orange { border-color: rgba(251,146,60,0.2); background: linear-gradient(135deg, rgba(251,146,60,0.06), var(--surface)); }
+
+  .chart-wrap {
+    margin: 0 20px 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 18px;
+  }
+  .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .chart-title { font-family: var(--font-display); font-size: 15px; font-weight: 700; }
+  .chart-tabs { display: flex; gap: 4px; }
+  .chart-tab {
+    padding: 4px 10px; border-radius: 8px;
+    font-size: 11px; font-weight: 600;
+    cursor: pointer; transition: all 0.2s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .chart-tab.active { background: var(--primary-dim); color: var(--primary); }
+  .chart-tab:not(.active) { color: var(--text-3); }
+  .bar-chart { display: flex; align-items: flex-end; gap: 6px; height: 90px; }
+  .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; justify-content: flex-end; }
+  .bar { width: 100%; border-radius: 6px 6px 0 0; transition: height 0.8s cubic-bezier(0.4,0,0.2,1); min-height: 4px; }
+  .bar-label { font-size: 9px; color: var(--text-3); }
+
+  .streak-banner {
+    margin: 0 20px 20px;
+    background: linear-gradient(135deg, rgba(251,146,60,0.1), rgba(244,114,182,0.1));
+    border: 1px solid rgba(251,146,60,0.2);
+    border-radius: var(--r-sm);
+    padding: 16px 18px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .streak-fire { font-size: 36px; }
+  .streak-num { font-family: var(--font-display); font-size: 32px; font-weight: 800; color: var(--orange); line-height: 1; }
+  .streak-label { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+
+  /* ── SCREEN 4: PROFILE ── */
+  .profile-hero {
+    margin: 8px 20px 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 24px 20px;
+    text-align: center;
+  }
+  .profile-avatar-big {
+    width: 72px; height: 72px;
+    background: linear-gradient(135deg, var(--primary), var(--blue));
+    border-radius: 22px;
+    margin: 0 auto 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 32px;
+  }
+  .profile-name { font-family: var(--font-display); font-size: 22px; font-weight: 800; letter-spacing: -0.3px; }
+  .profile-plan { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; }
+  .plan-badge {
+    background: linear-gradient(135deg, var(--primary), var(--blue));
+    color: #0a2318;
+    padding: 3px 10px;
+    border-radius: 100px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .settings-list { padding: 0 20px; }
+  .settings-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 15px 16px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.2s;
+  }
+  .settings-item:active { background: var(--surface2); }
+  .settings-icon {
+    width: 36px; height: 36px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0;
+  }
+  .settings-label { font-size: 14px; font-weight: 500; }
+  .settings-sub { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+  .settings-arrow { margin-left: auto; color: var(--text-3); font-size: 16px; }
+
+  .wearable-row {
+    margin: 0 20px 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .wearable-icon { font-size: 28px; }
+  .wearable-name { font-weight: 600; font-size: 14px; }
+  .wearable-status { font-size: 12px; margin-top: 2px; }
+  .wearable-toggle {
+    margin-left: auto;
+    width: 44px; height: 24px;
+    background: var(--primary);
+    border-radius: 100px;
+    position: relative;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .wearable-toggle::after {
+    content: '';
+    position: absolute;
+    top: 2px; right: 2px;
+    width: 20px; height: 20px;
+    background: white;
+    border-radius: 50%;
+  }
+
+  /* ── MODAL / WORKOUT ACTIVE ── */
+  .modal-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.8);
+    backdrop-filter: blur(8px);
+    z-index: 80;
+    display: flex;
+    align-items: flex-end;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s;
+  }
+  .modal-overlay.open { opacity: 1; pointer-events: all; }
+  .modal-sheet {
+    background: var(--surface);
+    border-radius: 28px 28px 0 0;
+    border-top: 1px solid var(--border);
+    padding: 20px 20px 40px;
+    width: 100%;
+    transform: translateY(100%);
+    transition: transform 0.35s cubic-bezier(0.4,0,0.2,1);
+  }
+  .modal-overlay.open .modal-sheet { transform: translateY(0); }
+  .modal-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 20px; }
+  .modal-title { font-family: var(--font-display); font-size: 20px; font-weight: 800; margin-bottom: 8px; }
+  .live-stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin: 16px 0; }
+  .live-stat {
+    background: var(--surface2);
+    border-radius: 14px;
+    padding: 14px 10px;
+    text-align: center;
+    border: 1px solid var(--border);
+  }
+  .live-stat-val { font-family: var(--font-display); font-size: 22px; font-weight: 800; }
+  .live-stat-val.red { color: #f87171; }
+  .live-stat-val.green { color: var(--primary); }
+  .live-stat-val.blue { color: var(--blue); }
+  .live-stat-key { font-size: 10px; color: var(--text-3); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.8px; }
+  .progress-bar-wrap { background: var(--surface2); border-radius: 100px; height: 6px; overflow: hidden; margin: 16px 0; }
+  .progress-bar-fill { height: 100%; background: linear-gradient(90deg, var(--primary), var(--blue)); border-radius: 100px; transition: width 0.5s; }
+  .btn-stop {
+    background: rgba(248,113,113,0.15);
+    color: #f87171;
+    border: 1px solid rgba(248,113,113,0.3);
+    border-radius: 12px;
+    padding: 13px;
+    font-family: var(--font-display);
+    font-size: 14px; font-weight: 700;
+    cursor: pointer; width: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* ── ANIMATIONS ── */
+  @keyframes fadeSlideIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .anim-in { animation: fadeSlideIn 0.5s ease both; }
+  .anim-in:nth-child(1) { animation-delay: 0.05s; }
+  .anim-in:nth-child(2) { animation-delay: 0.1s; }
+  .anim-in:nth-child(3) { animation-delay: 0.15s; }
+  .anim-in:nth-child(4) { animation-delay: 0.2s; }
+  .anim-in:nth-child(5) { animation-delay: 0.25s; }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+  .live-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #f87171;
+    display: inline-block;
+    animation: pulse-dot 1.2s infinite;
+    margin-right: 6px;
+  }
+
+  /* ── DESKTOP HINT ── */
+  @media (max-width: 440px) {
+    :root { --phone-w: calc(100vw - 20px); --phone-h: calc(100vh - 180px); }
+    .phone-frame { border-radius: 40px; }
+    .phone-screen { border-radius: 32px; }
+    .btn-vol-up, .btn-vol-down, .btn-power { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>FitnessAI Connect</h1>
+  <p>Mockup interactivo · Toca para navegar entre pantallas</p>
+</div>
+
+<div class="instructions">
+  <b>💡 Cómo probar:</b> Abre este archivo <b>.html</b> directamente en tu navegador (Chrome, Safari o Firefox) — sin servidor ni instalación. Navega con la barra inferior. Toca <b>"Iniciar Entrenamiento"</b> para ver el modal en vivo con métricas. Marca ejercicios como completados.
+</div>
+
+<div class="phone-scene">
+  <div class="phone-frame">
+    <!-- Hardware buttons -->
+    <div class="phone-btn btn-vol-up"></div>
+    <div class="phone-btn btn-vol-down"></div>
+    <div class="phone-btn btn-power"></div>
+    <!-- Notch -->
+    <div class="phone-notch">
+      <div class="notch-camera"></div>
+      <div class="notch-speaker"></div>
+    </div>
+
+    <div class="phone-screen">
+      <!-- STATUS BAR -->
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <div class="status-icons">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M1 6l8.5 8.5L12 12l2.5 2.5L23 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+          <svg viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="8" width="3" height="8" rx="1"/><rect x="7" y="5" width="3" height="11" rx="1"/><rect x="12" y="3" width="3" height="13" rx="1"/><rect x="17" y="1" width="3" height="15" rx="1" opacity="0.3"/></svg>
+          <svg viewBox="0 0 24 24" fill="none"><rect x="2" y="7" width="18" height="11" rx="2" stroke="currentColor" stroke-width="2"/><path d="M22 11v3" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><rect x="4" y="9" width="10" height="7" rx="1" fill="currentColor"/></svg>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════ SCREEN: HOME ══════════════════════════════ -->
+      <div class="screen active" id="screen-home">
+        <div class="hero-greeting anim-in">
+          <div class="greeting-sub">Buenos días 🌤</div>
+          <div class="greeting-name">Hola, <span>Carlos</span></div>
+        </div>
+
+        <!-- Today's workout card -->
+        <div class="today-card anim-in">
+          <div class="today-label">Entrenamiento de hoy · IA Generado</div>
+          <div class="today-title">Fuerza Upper Body A</div>
+          <div class="today-meta">con Marcos Sánchez · 52 min estimado</div>
+          <div class="today-stats">
+            <div class="today-stat">
+              <div class="today-stat-val">6</div>
+              <div class="today-stat-key">Ejercicios</div>
+            </div>
+            <div class="today-stat">
+              <div class="today-stat-val">350</div>
+              <div class="today-stat-key">kcal est.</div>
+            </div>
+            <div class="today-stat">
+              <div class="today-stat-val">RPE 7</div>
+              <div class="today-stat-key">Intensidad</div>
+            </div>
+          </div>
+          <button class="btn-start" onclick="openModal()">▶  Iniciar Entrenamiento</button>
+        </div>
+
+        <!-- Activity rings -->
+        <div class="sub-label anim-in">Actividad de hoy</div>
+        <div class="ring-section anim-in">
+          <div class="ring-card">
+            <div class="ring-wrap">
+              <svg class="ring-svg" viewBox="0 0 56 56">
+                <circle class="ring-track" cx="28" cy="28" r="23" stroke="rgba(110,231,183,0.12)"/>
+                <circle class="ring-fill" cx="28" cy="28" r="23" stroke="#6ee7b7"
+                  stroke-dasharray="144.51" stroke-dashoffset="57" id="ring-move"/>
+              </svg>
+              <div class="ring-val" style="color:var(--primary)">72%</div>
+            </div>
+            <div class="ring-key">Movimiento</div>
+          </div>
+          <div class="ring-card">
+            <div class="ring-wrap">
+              <svg class="ring-svg" viewBox="0 0 56 56">
+                <circle class="ring-track" cx="28" cy="28" r="23" stroke="rgba(244,114,182,0.12)"/>
+                <circle class="ring-fill" cx="28" cy="28" r="23" stroke="#f472b6"
+                  stroke-dasharray="144.51" stroke-dashoffset="86" id="ring-ex"/>
+              </svg>
+              <div class="ring-val" style="color:var(--accent)">40%</div>
+            </div>
+            <div class="ring-key">Ejercicio</div>
+          </div>
+          <div class="ring-card">
+            <div class="ring-wrap">
+              <svg class="ring-svg" viewBox="0 0 56 56">
+                <circle class="ring-track" cx="28" cy="28" r="23" stroke="rgba(96,165,250,0.12)"/>
+                <circle class="ring-fill" cx="28" cy="28" r="23" stroke="#60a5fa"
+                  stroke-dasharray="144.51" stroke-dashoffset="29" id="ring-stand"/>
+              </svg>
+              <div class="ring-val" style="color:var(--blue)">80%</div>
+            </div>
+            <div class="ring-key">De pie</div>
+          </div>
+        </div>
+
+        <!-- AI Insight -->
+        <div class="ai-insight anim-in">
+          <div class="ai-icon">🧠</div>
+          <div class="ai-text"><b>Insight de IA:</b> Tu HRV bajó 12% vs. ayer (Apple Watch). Reduciré el volumen de hoy en un 15% para optimizar recuperación. ¡Aun así será una gran sesión!</div>
+        </div>
+
+        <!-- Trainer -->
+        <div class="sub-label anim-in">Tu entrenador</div>
+        <div class="trainer-strip anim-in">
+          <div class="trainer-card-mini" onclick="navTo('profile')">
+            <div class="trainer-avatar">💪</div>
+            <div>
+              <div class="trainer-name">Marcos Sánchez</div>
+              <div class="trainer-meta">⭐ 4.9 · 320 clientes activos · Fuerza & Hipertrofia</div>
+            </div>
+            <button class="trainer-btn">Chat</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════ SCREEN: WORKOUT ══════════════════════════════ -->
+      <div class="screen" id="screen-workout">
+        <div style="padding: 8px 20px 0;">
+          <div class="section-title">Mis Planes</div>
+        </div>
+
+        <div id="screen-workout" style="padding:0;">
+          <!-- Current workout hero -->
+          <div class="workout-hero anim-in">
+            <div class="wk-category">Esta semana · Semana 4 de 12</div>
+            <div class="wk-title">Fuerza Upper Body A</div>
+            <div class="wk-sub">Pecho · Hombros · Tríceps · IA-adaptado</div>
+            <div class="wk-badges">
+              <span class="pill pink">52 min</span>
+              <span class="pill blue">6 ejercicios</span>
+              <span class="pill orange">RPE 7</span>
+              <span class="pill green">Apple Watch ✓</span>
+            </div>
+            <button class="btn-go" onclick="openModal()">▶  Iniciar ahora</button>
+          </div>
+        </div>
+
+        <div class="sub-label" style="margin-top:16px">Ejercicios de hoy</div>
+        <div class="exercise-list" id="exercise-list">
+          <!-- Exercises generated by JS -->
+        </div>
+
+        <div class="sub-label" style="margin-top:8px">Próximas sesiones</div>
+        <div style="padding: 0 20px 20px;">
+          <div class="card" style="padding:14px 16px; margin-bottom:10px; display:flex; align-items:center; gap:14px;">
+            <div style="width:40px;height:40px;background:var(--surface2);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:18px">🦵</div>
+            <div>
+              <div style="font-weight:600;font-size:14px">Lower Body B – Cuádriceps</div>
+              <div style="font-size:12px;color:var(--text-2)">Mañana · 48 min · RPE 6</div>
+            </div>
+            <span class="pill blue" style="margin-left:auto">Mar</span>
+          </div>
+          <div class="card" style="padding:14px 16px; display:flex; align-items:center; gap:14px;">
+            <div style="width:40px;height:40px;background:var(--surface2);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:18px">🏃</div>
+            <div>
+              <div style="font-weight:600;font-size:14px">Cardio LISS – Running</div>
+              <div style="font-size:12px;color:var(--text-2)">Miércoles · 35 min · Zona 2</div>
+            </div>
+            <span class="pill green" style="margin-left:auto">Mié</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════ SCREEN: PROGRESS ══════════════════════════════ -->
+      <div class="screen" id="screen-progress">
+        <div style="padding: 8px 20px 16px; display:flex; justify-content:space-between; align-items:center;">
+          <div class="section-title" style="padding:0;margin:0">Progreso</div>
+          <span class="pill green">↑ +8% este mes</span>
+        </div>
+
+        <!-- Streak -->
+        <div class="streak-banner anim-in">
+          <div class="streak-fire">🔥</div>
+          <div>
+            <div class="streak-num">14</div>
+            <div class="streak-label">días de racha · ¡Sigue así!</div>
+          </div>
+          <div style="margin-left:auto; text-align:right;">
+            <div style="font-family:var(--font-display);font-size:15px;font-weight:700;color:var(--orange)">Nivel 3</div>
+            <div style="font-size:11px;color:var(--text-2)">Atleta en forma</div>
+          </div>
+        </div>
+
+        <!-- Stats grid -->
+        <div class="stats-grid anim-in">
+          <div class="stat-card accent-green">
+            <div class="stat-card-label">Entrenamientos</div>
+            <div class="stat-card-val" style="color:var(--primary)">47</div>
+            <div class="stat-card-sub">Total este mes</div>
+          </div>
+          <div class="stat-card accent-pink">
+            <div class="stat-card-label">Calorías</div>
+            <div class="stat-card-val" style="color:var(--accent)">12.4k</div>
+            <div class="stat-card-sub">Quemadas este mes</div>
+          </div>
+          <div class="stat-card accent-blue">
+            <div class="stat-card-label">Tiempo total</div>
+            <div class="stat-card-val" style="color:var(--blue)">38h</div>
+            <div class="stat-card-sub">Este mes</div>
+          </div>
+          <div class="stat-card accent-orange">
+            <div class="stat-card-label">Peso levantado</div>
+            <div class="stat-card-val" style="color:var(--orange)">4.2t</div>
+            <div class="stat-card-sub">Total acumulado</div>
+          </div>
+        </div>
+
+        <!-- Bar chart -->
+        <div class="chart-wrap anim-in">
+          <div class="chart-header">
+            <div class="chart-title">Volumen semanal</div>
+            <div class="chart-tabs">
+              <div class="chart-tab active">4S</div>
+              <div class="chart-tab">3M</div>
+              <div class="chart-tab">1A</div>
+            </div>
+          </div>
+          <div class="bar-chart" id="bar-chart">
+            <!-- generated by JS -->
+          </div>
+        </div>
+
+        <!-- AI Progress insight -->
+        <div class="ai-insight anim-in" style="margin-bottom:20px;">
+          <div class="ai-icon">📈</div>
+          <div class="ai-text"><b>Análisis IA:</b> Tu fuerza en press de banca aumentó <b>+12kg</b> en 8 semanas. A este ritmo alcanzarás tu meta de 100kg en <b>6 semanas más</b>. Ajusté la progresión de carga para esta semana.</div>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════ SCREEN: PROFILE ══════════════════════════════ -->
+      <div class="screen" id="screen-profile">
+        <div style="padding: 8px 20px 0;">
+          <div class="section-title">Mi Perfil</div>
+        </div>
+
+        <div class="profile-hero anim-in">
+          <div class="profile-avatar-big">🏋️</div>
+          <div class="profile-name">Carlos Mendoza</div>
+          <div class="profile-plan">
+            <span class="plan-badge">⚡ Plan PRO</span>
+            <span style="font-size:12px;color:var(--text-2)">Activo · Renueva en 18 días</span>
+          </div>
+          <div style="display:flex; justify-content:center; gap:20px; margin-top:16px;">
+            <div style="text-align:center;">
+              <div style="font-family:var(--font-display);font-size:20px;font-weight:800;">47</div>
+              <div style="font-size:11px;color:var(--text-2);">Sesiones</div>
+            </div>
+            <div style="width:1px;background:var(--border);"></div>
+            <div style="text-align:center;">
+              <div style="font-family:var(--font-display);font-size:20px;font-weight:800;">14</div>
+              <div style="font-size:11px;color:var(--text-2);">Racha</div>
+            </div>
+            <div style="width:1px;background:var(--border);"></div>
+            <div style="text-align:center;">
+              <div style="font-family:var(--font-display);font-size:20px;font-weight:800;">8</div>
+              <div style="font-size:11px;color:var(--text-2);">Semanas</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="sub-label anim-in">Wearables conectados</div>
+        <div class="wearable-row anim-in">
+          <div class="wearable-icon">⌚</div>
+          <div>
+            <div class="wearable-name">Apple Watch Series 9</div>
+            <div class="wearable-status" style="color:var(--primary)">● Sincronizado · hace 2 min</div>
+          </div>
+          <div class="wearable-toggle"></div>
+        </div>
+        <div class="wearable-row anim-in" style="margin-bottom:20px;">
+          <div class="wearable-icon">🏃</div>
+          <div>
+            <div class="wearable-name">Garmin Forerunner 265</div>
+            <div class="wearable-status" style="color:var(--text-3)">○ No conectado</div>
+          </div>
+          <div class="wearable-toggle" style="background:var(--surface2);">
+            <span style="position:absolute;top:2px;left:2px;width:20px;height:20px;background:var(--text-3);border-radius:50%;display:block;"></span>
+          </div>
+        </div>
+
+        <div class="sub-label anim-in">Configuración</div>
+        <div class="settings-list anim-in">
+          <div class="settings-item">
+            <div class="settings-icon" style="background:var(--primary-dim)">🎯</div>
+            <div>
+              <div class="settings-label">Mis objetivos</div>
+              <div class="settings-sub">Hipertrofia · Perder 5kg</div>
+            </div>
+            <span class="settings-arrow">›</span>
+          </div>
+          <div class="settings-item">
+            <div class="settings-icon" style="background:var(--blue-dim)">📅</div>
+            <div>
+              <div class="settings-label">Disponibilidad</div>
+              <div class="settings-sub">Lun, Mié, Vie, Sáb · 5:30am</div>
+            </div>
+            <span class="settings-arrow">›</span>
+          </div>
+          <div class="settings-item">
+            <div class="settings-icon" style="background:var(--accent-dim)">🔔</div>
+            <div>
+              <div class="settings-label">Notificaciones</div>
+              <div class="settings-sub">Recordatorios, logros, IA</div>
+            </div>
+            <span class="settings-arrow">›</span>
+          </div>
+          <div class="settings-item">
+            <div class="settings-icon" style="background:rgba(251,146,60,0.12)">💳</div>
+            <div>
+              <div class="settings-label">Suscripción</div>
+              <div class="settings-sub">Plan PRO · $14.99/mes</div>
+            </div>
+            <span class="settings-arrow">›</span>
+          </div>
+          <div class="settings-item">
+            <div class="settings-icon" style="background:rgba(167,243,208,0.12)">🔗</div>
+            <div>
+              <div class="settings-label">Invitar amigos</div>
+              <div class="settings-sub">Gana 1 mes gratis por referido</div>
+            </div>
+            <span class="settings-arrow">›</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════════════════════════════ MODAL: WORKOUT ACTIVE ══════════════════════════════ -->
+      <div class="modal-overlay" id="modal-workout" onclick="closeModal(event)">
+        <div class="modal-sheet">
+          <div class="modal-handle"></div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+            <span class="live-dot"></span>
+            <span style="font-size:12px;color:#f87171;font-weight:600;text-transform:uppercase;letter-spacing:1px;">En Vivo · Apple Watch</span>
+          </div>
+          <div class="modal-title">Fuerza Upper Body A</div>
+          <div style="font-size:13px;color:var(--text-2);margin-bottom:4px;">Ejercicio actual: <b style="color:var(--text)">Press Banca · Serie 2 de 4</b></div>
+
+          <div class="live-stats">
+            <div class="live-stat">
+              <div class="live-stat-val red" id="hr-val">138</div>
+              <div class="live-stat-key">♥ FC bpm</div>
+            </div>
+            <div class="live-stat">
+              <div class="live-stat-val green" id="cal-val">112</div>
+              <div class="live-stat-key">🔥 kcal</div>
+            </div>
+            <div class="live-stat">
+              <div class="live-stat-val blue" id="time-val">18:32</div>
+              <div class="live-stat-key">⏱ Tiempo</div>
+            </div>
+          </div>
+
+          <div style="font-size:12px;color:var(--text-2);margin-bottom:6px;">Progreso del entrenamiento</div>
+          <div class="progress-bar-wrap">
+            <div class="progress-bar-fill" id="workout-progress" style="width:35%"></div>
+          </div>
+          <div style="font-size:11px;color:var(--text-3);text-align:right;margin-bottom:16px;">2 de 6 ejercicios · 35% completado</div>
+
+          <div style="background:var(--surface2);border-radius:14px;padding:14px;margin-bottom:16px;border:1px solid var(--border);">
+            <div style="font-size:11px;color:var(--blue);font-weight:600;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px;">💡 IA en tiempo real</div>
+            <div style="font-size:13px;color:var(--text-2);line-height:1.5;">Tu FC está en zona óptima (130-145 bpm). Mantén el tempo 2-1-2 para maximizar tensión muscular.</div>
+          </div>
+
+          <button class="btn-stop" onclick="closeModal()">■  Pausar entrenamiento</button>
+        </div>
+      </div>
+
+      <!-- BOTTOM NAV -->
+      <nav class="bottom-nav">
+        <div class="nav-item active" id="nav-home" onclick="navTo('home')">
+          <div class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+              <polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
+          </div>
+          <span class="nav-label">Inicio</span>
+        </div>
+        <div class="nav-item" id="nav-workout" onclick="navTo('workout')">
+          <div class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6.5 6.5h11M6.5 17.5h11M3 12h3m15 0h-3M6 6.5V17.5M18 6.5V17.5"/>
+            </svg>
+          </div>
+          <span class="nav-label">Planes</span>
+        </div>
+        <div class="nav-item" id="nav-progress" onclick="navTo('progress')">
+          <div class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+            </svg>
+          </div>
+          <span class="nav-label">Progreso</span>
+        </div>
+        <div class="nav-item" id="nav-profile" onclick="navTo('profile')">
+          <div class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+          </div>
+          <span class="nav-label">Perfil</span>
+        </div>
+      </nav>
+    </div><!-- /phone-screen -->
+  </div><!-- /phone-frame -->
+</div><!-- /phone-scene -->
+
+<script>
+  // ── NAVIGATION ──
+  function navTo(screen) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.getElementById('screen-' + screen).classList.add('active');
+    document.getElementById('nav-' + screen).classList.add('active');
+  }
+
+  // ── EXERCISES ──
+  const exercises = [
+    { name: 'Press Banca con Barra', detail: '4 × 8 reps · 75kg · Descanso 90s', emoji: '🏋️' },
+    { name: 'Press Inclinado Mancuernas', detail: '3 × 10 reps · 24kg c/u · Descanso 75s', emoji: '💪' },
+    { name: 'Press Militar', detail: '4 × 8 reps · 50kg · Descanso 90s', emoji: '🔝' },
+    { name: 'Elevaciones Laterales', detail: '3 × 15 reps · 10kg · Descanso 60s', emoji: '🦾' },
+    { name: 'Extensión Tríceps Cable', detail: '3 × 12 reps · 35kg · Descanso 60s', emoji: '⚡' },
+    { name: 'Face Pulls', detail: '3 × 15 reps · 25kg · Descanso 45s', emoji: '🎯' },
+  ];
+
+  const list = document.getElementById('exercise-list');
+  exercises.forEach((ex, i) => {
+    const el = document.createElement('div');
+    el.className = 'ex-item';
+    el.id = 'ex-' + i;
+    el.innerHTML = `
+      <div class="ex-num">${i + 1}</div>
+      <div class="ex-info">
+        <div class="ex-name">${ex.name}</div>
+        <div class="ex-detail">${ex.detail}</div>
+      </div>
+      <div class="ex-check" onclick="toggleEx(${i}, event)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+          <polyline points="20 6 9 17 4 12" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+    `;
+    list.appendChild(el);
+  });
+
+  function toggleEx(i, e) {
+    e.stopPropagation();
+    document.getElementById('ex-' + i).classList.toggle('done');
+  }
+
+  // ── BAR CHART ──
+  const chartData = [
+    { label: 'S1', val: 72, color: 'rgba(96,165,250,0.6)' },
+    { label: 'S2', val: 85, color: 'rgba(96,165,250,0.7)' },
+    { label: 'S3', val: 68, color: 'rgba(96,165,250,0.6)' },
+    { label: 'S4', val: 94, color: 'var(--primary)' },
+  ];
+  const barChart = document.getElementById('bar-chart');
+  const maxVal = Math.max(...chartData.map(d => d.val));
+  chartData.forEach(d => {
+    const col = document.createElement('div');
+    col.className = 'bar-col';
+    const pct = (d.val / maxVal) * 100;
+    col.innerHTML = `
+      <div class="bar" style="height:${pct}%;background:${d.color};"></div>
+      <div class="bar-label">${d.label}</div>
+    `;
+    barChart.appendChild(col);
+  });
+
+  // ── MODAL ──
+  function openModal() {
+    document.getElementById('modal-workout').classList.add('open');
+    startLiveMetrics();
+  }
+  function closeModal(e) {
+    if (!e || e.target === document.getElementById('modal-workout')) {
+      document.getElementById('modal-workout').classList.remove('open');
+      stopLiveMetrics();
+    }
+  }
+
+  // ── LIVE METRICS SIMULATION ──
+  let metricsInterval = null;
+  let seconds = 1112;
+
+  function startLiveMetrics() {
+    metricsInterval = setInterval(() => {
+      seconds++;
+      const h = Math.floor(seconds / 60);
+      const s = seconds % 60;
+      document.getElementById('time-val').textContent = `${String(h).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+
+      const hr = 132 + Math.floor(Math.sin(seconds * 0.05) * 10 + Math.random() * 6);
+      document.getElementById('hr-val').textContent = hr;
+
+      const cal = 112 + Math.floor((seconds - 1112) * 0.18);
+      document.getElementById('cal-val').textContent = cal;
+    }, 1000);
+  }
+  function stopLiveMetrics() {
+    clearInterval(metricsInterval);
+  }
+
+  // ── CLOCK ──
+  function updateClock() {
+    const now = new Date();
+    const h = String(now.getHours()).padStart(2,'0');
+    const m = String(now.getMinutes()).padStart(2,'0');
+    document.querySelector('.status-time').textContent = `${h}:${m}`;
+  }
+  updateClock();
+  setInterval(updateClock, 10000);
+</script>
+</body>
+</html>
