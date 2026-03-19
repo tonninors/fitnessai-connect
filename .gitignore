@@ -19,6 +19,14 @@ desktop.ini
 .vscode/
 .idea/
 
+# Claude Code
+.claude/
+
+# Lock files
+package-lock.json
+backend/package-lock.json
+frontend/package-lock.json
+
 # Logs
 *.log
 npm-debug.log*
