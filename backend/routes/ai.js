@@ -10,14 +10,31 @@ const groq     = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const SYSTEM = 'Eres un entrenador personal certificado experto. Responde siempre en español, de forma concisa (máximo 2 frases), motivadora y accionable.';
 const MODEL  = 'meta-llama/llama-4-scout-17b-16e-instruct';
 
-async function chat(messages, maxTokens = 120) {
-  const res = await groq.chat.completions.create({
-    model: MODEL,
-    messages,
-    max_tokens: maxTokens,
-    temperature: 0.7,
-  });
-  return res.choices[0].message.content;
+async function chat(messages, maxTokens = 120, retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await groq.chat.completions.create({
+        model: MODEL,
+        messages,
+        max_tokens: maxTokens,
+        temperature: 0.7,
+      });
+      return res.choices[0].message.content;
+    } catch (err) {
+      const is429 = err?.status === 429 || err?.message?.includes('Too Many Requests') || err?.message?.includes('rate_limit');
+      if (is429 && attempt < retries) {
+        // Esperar antes de reintentar (2s, luego 5s)
+        await new Promise(r => setTimeout(r, attempt === 0 ? 2000 : 5000));
+        continue;
+      }
+      if (is429) {
+        const e = new Error('El servicio de IA está muy ocupado. Espera unos segundos e inténtalo de nuevo.');
+        e.status = 429;
+        throw e;
+      }
+      throw err;
+    }
+  }
 }
 
 // POST generar insight contextual
@@ -40,10 +57,16 @@ router.post('/insight', requireAuth, async (req, res) => {
   };
 
   const userPrompt = prompts[type] || prompts.workout_ready;
-  const content = await chat([
-    { role: 'system', content: SYSTEM },
-    { role: 'user',   content: userPrompt },
-  ]);
+  let content;
+  try {
+    content = await chat([
+      { role: 'system', content: SYSTEM },
+      { role: 'user',   content: userPrompt },
+    ]);
+  } catch (aiErr) {
+    const statusCode = aiErr.status === 429 ? 429 : 502;
+    return res.status(statusCode).json({ error: aiErr.message });
+  }
 
   supabase.from('ai_insights').insert({
     user_id: userId, type, content, context,
@@ -85,10 +108,16 @@ Responde SOLO con JSON válido, sin texto extra, sin markdown:
   ]
 }`;
 
-  const text = await chat([
-    { role: 'system', content: 'Eres un entrenador personal certificado. Crea planes de entrenamiento en JSON estructurado y válido. Responde SOLO con JSON, sin texto extra, sin bloques de código markdown.' },
-    { role: 'user',   content: planPrompt },
-  ], 1500);
+  let text;
+  try {
+    text = await chat([
+      { role: 'system', content: 'Eres un entrenador personal certificado. Crea planes de entrenamiento en JSON estructurado y válido. Responde SOLO con JSON, sin texto extra, sin bloques de código markdown.' },
+      { role: 'user',   content: planPrompt },
+    ], 1500);
+  } catch (aiErr) {
+    const statusCode = aiErr.status === 429 ? 429 : 502;
+    return res.status(statusCode).json({ error: aiErr.message });
+  }
 
   let parsed;
   try {
