@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../api/client.js';
 
 const GOALS = [
@@ -33,8 +33,19 @@ export default function Onboarding({ user, onComplete }) {
   const [equip,    setEquip]    = useState([]);
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
+  const [name,     setName]     = useState(
+    user?.user_metadata?.full_name?.split(' ')[0] ?? 'Atleta'
+  );
 
-  const name = user?.user_metadata?.full_name?.split(' ')[0] ?? 'Atleta';
+  // Cargar nombre real desde perfil DB si user_metadata no lo tiene
+  useEffect(() => {
+    if (!user?.user_metadata?.full_name) {
+      api.get('/profile').then(p => {
+        const firstName = p?.full_name?.split(' ')[0];
+        if (firstName) setName(firstName);
+      }).catch(() => {});
+    }
+  }, [user]);
 
   const toggleList = (list, setList, id) =>
     setList(l => l.includes(id) ? l.filter(x => x !== id) : [...l, id]);
@@ -48,23 +59,30 @@ export default function Onboarding({ user, onComplete }) {
       const goalsStr = goals.join(', ') || 'fitness general';
       const equipStr = equip.join(', ')  || 'ninguno';
 
+      // 1. Guardar perfil — esto siempre debe completarse
       await api.patch('/profile', {
         goals:                { primary: goals[0] || null, all: goals },
         availability:         { days_per_week: days, session_duration: duration },
         onboarding_completed: true,
       });
 
-      await api.post('/ai/generate-plan', {
-        goals:         goalsStr,
-        days_per_week: days,
-        fitness_level: level,
-        equipment:     equipStr,
-        focus_areas:   goalsStr,
-      });
+      // 2. Generar plan IA — si falla, igual avanzamos (el plan puede generarse luego)
+      try {
+        await api.post('/ai/generate-plan', {
+          goals:         goalsStr,
+          days_per_week: days,
+          fitness_level: level,
+          equipment:     equipStr,
+          focus_areas:   goalsStr,
+        });
+      } catch (aiErr) {
+        // Plan no generado — el usuario puede generarlo desde Planes
+        console.warn('Plan IA no generado:', aiErr.message);
+      }
 
       onComplete();
     } catch (e) {
-      setError(e.message || 'Error al crear el plan. Intenta de nuevo.');
+      setError(e.message || 'Error al guardar tu perfil. Intenta de nuevo.');
       setLoading(false);
     }
   }
