@@ -18,7 +18,12 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json());
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100, standardHeaders: true }));
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === 'production' ? 100 : 1000,
+  standardHeaders: true,
+  message: { error: 'Demasiadas solicitudes. Intenta de nuevo en unos minutos.' },
+}));
 
 app.use('/api/home',      homeRouter);
 app.use('/api/workouts',  workoutsRouter);
