@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api/client.js';
 
-export default function Home({ onStartWorkout }) {
+export default function Home({ onStartWorkout, onNavigate }) {
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -67,7 +67,11 @@ export default function Home({ onStartWorkout }) {
         <div className="section">
           <div className="card" style={{ textAlign: 'center', color: 'var(--text-2)' }}>
             <p style={{ marginBottom: 12 }}>No tienes entrenamiento programado para hoy</p>
-            <button className="btn btn-surface btn-sm" style={{ width: 'auto', margin: '0 auto' }}>
+            <button
+              className="btn btn-surface btn-sm"
+              style={{ width: 'auto', margin: '0 auto' }}
+              onClick={() => onNavigate('plans')}
+            >
               Generar con IA
             </button>
           </div>

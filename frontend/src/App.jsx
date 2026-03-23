@@ -63,6 +63,7 @@ export default function App() {
 
   if (loading || profileLoad) return null;
   if (!session) return <Login />;
+  if (!profile) return null;  // Esperar a que cargue el perfil antes de decidir onboarding
 
   const showCoach = isTrainer && activeScreen === 'coach';
 
