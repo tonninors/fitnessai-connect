@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
+import { motion } from 'framer-motion';
+import { Heart, Flame, Clock, Sparkles, X } from 'lucide-react';
 import { api } from '../api/client.js';
 
 export default function WorkoutModal({ session, hasWearable, onClose }) {
@@ -7,7 +9,7 @@ export default function WorkoutModal({ session, hasWearable, onClose }) {
   const [seconds,      setSeconds]      = useState(0);
   const [progress,     setProgress]     = useState(0);
   const [insight,      setInsight]      = useState('Tu FC está en zona óptima. Mantén el tempo 2-1-2.');
-  const [metricPopup,  setMetricPopup]  = useState(null); // 'hr' | 'cal' | 'time'
+  const [metricPopup,  setMetricPopup]  = useState(null);
   const intervalRef = useRef(null);
   const exercises = session?.session_exercises ?? [];
 
@@ -21,11 +23,9 @@ export default function WorkoutModal({ session, hasWearable, onClose }) {
 
     intervalRef.current = setInterval(() => {
       setSeconds(s => s + 1);
-      // HR solo si hay wearable conectado
       if (hasWearable) {
         setHr(h => Math.round((h ?? 132) + 8 * Math.sin(Date.now() / 4000) + (Math.random() - 0.5) * 4));
       }
-      // Calorías se estiman siempre (basado en tiempo + RPE)
       const rpe = session.rpe_target ?? 6;
       setCalories(c => +(c + (rpe * 0.03)).toFixed(1));
     }, 1000);
@@ -54,104 +54,124 @@ export default function WorkoutModal({ session, hasWearable, onClose }) {
 
   const METRIC_INFO = {
     hr: {
-      title: '❤️ Frecuencia Cardíaca',
+      title: 'Frecuencia Cardíaca',
       value: hasWearable ? `${hr} bpm` : 'Sin wearable',
       detail: hasWearable
         ? `Zona ${hrZone(hr)} · Óptimo para tu objetivo`
-        : 'Conecta tu Apple Watch, Garmin o Google Fit en Perfil → Wearables para ver tu FC en tiempo real.',
+        : 'Conecta tu Apple Watch, Garmin o Google Fit en Perfil para ver tu FC en tiempo real.',
     },
     cal: {
-      title: '🔥 Calorías quemadas',
+      title: 'Calorías quemadas',
       value: `${Math.round(calories)} kcal`,
-      detail: `Estimado basado en ${session.estimated_duration} min de entrenamiento a RPE ${session.rpe_target ?? 6}. Conecta un wearable para mayor precisión.`,
+      detail: `Estimado basado en ${session.estimated_duration} min a RPE ${session.rpe_target ?? 6}. Conecta un wearable para mayor precisión.`,
     },
     time: {
-      title: '⏱ Tiempo de sesión',
+      title: 'Tiempo de sesión',
       value: formatTime(seconds),
-      detail: `Duración estimada: ${session.estimated_duration} min. Llevas ${Math.round(seconds / 60)} min completados.`,
+      detail: `Duración estimada: ${session.estimated_duration} min. Llevas ${Math.round(seconds / 60)} min.`,
     },
   };
 
   return (
-    <div className="modal-overlay open" onClick={e => { if (e.target === e.currentTarget) { setMetricPopup(null); } }}>
-      <div className="modal-sheet">
+    <div className="modal-overlay open" onClick={e => { if (e.target === e.currentTarget) setMetricPopup(null); }}>
+      <motion.div className="modal-sheet"
+        initial={{ y: '100%' }} animate={{ y: 0 }}
+        transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+      >
         <div className="modal-handle" />
 
         {/* Live badge */}
-        <div className="live-badge">
-          <div className="live-dot" />
-          {hasWearable ? 'En Vivo · Apple Watch' : 'En Vivo · Sin wearable'}
+        <div className="flex items-center gap-2 mb-4">
+          <div className="live-badge">
+            <div className="live-dot" />
+            {hasWearable ? 'En vivo · Apple Watch' : 'En vivo'}
+          </div>
+          <div className="flex-1" />
+          <button className="w-8 h-8 rounded-lg bg-surface2 flex items-center justify-center border-none cursor-pointer"
+            onClick={() => setMetricPopup(null)}
+          >
+            <X size={14} className="text-txt3" />
+          </button>
         </div>
 
-        <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, marginBottom: 4 }}>
-          {session.name}
-        </div>
+        {/* Session name */}
+        <div className="text-xl font-bold mb-1">{session.name}</div>
         {currentEx && (
-          <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 4 }}>
-            Ejercicio actual: {currentEx.exercise_name}
+          <div className="text-xs text-txt3 mb-4">
+            {currentEx.exercise_name}
             {currentEx.sets && ` · Serie 1 de ${currentEx.sets}`}
           </div>
         )}
 
-        {/* Metrics */}
+        {/* Metrics row */}
         <div className="metrics-row">
-          <div className="metric-card" onClick={() => setMetricPopup(p => p === 'hr' ? null : 'hr')} style={{ cursor: 'pointer' }}>
-            <div className="metric-val" style={{ color: '#ef4444' }}>
+          <div className="metric-card" onClick={() => setMetricPopup(p => p === 'hr' ? null : 'hr')}>
+            <Heart size={14} className="text-red-400 mb-1" />
+            <div className="font-metric text-3xl font-bold text-red-400 leading-none">
               {hasWearable ? (hr ?? '—') : '—'}
             </div>
-            <div className="metric-lbl">♥ FC bpm</div>
+            <div className="text-[10px] text-txt3 uppercase tracking-wider mt-1.5">FC bpm</div>
           </div>
-          <div className="metric-card" onClick={() => setMetricPopup(p => p === 'cal' ? null : 'cal')} style={{ cursor: 'pointer' }}>
-            <div className="metric-val" style={{ color: 'var(--primary)' }}>{Math.round(calories)}</div>
-            <div className="metric-lbl">🔥 kcal</div>
+          <div className="metric-card" onClick={() => setMetricPopup(p => p === 'cal' ? null : 'cal')}>
+            <Flame size={14} className="text-accent mb-1" />
+            <div className="font-metric text-3xl font-bold text-accent leading-none">
+              {Math.round(calories)}
+            </div>
+            <div className="text-[10px] text-txt3 uppercase tracking-wider mt-1.5">Kcal</div>
           </div>
-          <div className="metric-card" onClick={() => setMetricPopup(p => p === 'time' ? null : 'time')} style={{ cursor: 'pointer' }}>
-            <div className="metric-val" style={{ color: 'var(--blue)' }}>{formatTime(seconds)}</div>
-            <div className="metric-lbl">⏱ Tiempo</div>
+          <div className="metric-card" onClick={() => setMetricPopup(p => p === 'time' ? null : 'time')}>
+            <Clock size={14} className="text-blue mb-1" />
+            <div className="font-metric text-3xl font-bold text-blue leading-none">
+              {formatTime(seconds)}
+            </div>
+            <div className="text-[10px] text-txt3 uppercase tracking-wider mt-1.5">Tiempo</div>
           </div>
         </div>
 
         {/* Metric popup */}
         {metricPopup && (
-          <div style={{
-            background: 'var(--surface)', border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: 14, padding: '14px 16px', marginBottom: 12,
-          }}>
-            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{METRIC_INFO[metricPopup].title}</div>
-            <div style={{ fontSize: 22, fontWeight: 800, fontFamily: 'var(--font-display)', color: 'var(--primary)', marginBottom: 6 }}>
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+            className="bg-surface2 rounded-xl p-4 mb-3 border border-border"
+          >
+            <div className="text-sm font-medium mb-1.5">{METRIC_INFO[metricPopup].title}</div>
+            <div className="font-metric text-2xl font-bold text-accent mb-1.5">
               {METRIC_INFO[metricPopup].value}
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>{METRIC_INFO[metricPopup].detail}</div>
-          </div>
+            <div className="text-xs text-txt3 leading-relaxed">{METRIC_INFO[metricPopup].detail}</div>
+          </motion.div>
         )}
 
-        {/* Progress */}
-        <div className="progress-bar-wrap">
-          <div className="progress-label">
-            <span>Progreso del entrenamiento</span>
-            <span>{progress}%</span>
+        {/* Progress bar */}
+        <div className="mb-4">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-xs text-txt3 font-medium">Progreso</span>
+            <span className="text-xs text-accent font-semibold">{progress}%</span>
           </div>
           <div className="progress-bar-bg">
-            <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
+            <motion.div className="progress-bar-fill"
+              initial={{ width: 0 }}
+              animate={{ width: `${progress}%` }}
+              transition={{ duration: 0.5 }}
+            />
           </div>
-          <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 4 }}>
+          <div className="text-xs text-txt3 mt-1.5">
             {currentExIdx + 1} de {exercises.length} ejercicios
           </div>
         </div>
 
         {/* AI insight */}
-        <div className="insight-card" style={{ marginBottom: 16 }}>
-          <span className="insight-icon">💡</span>
+        <div className="flex gap-3 items-start bg-surface2 rounded-xl p-4 mb-4 border border-border border-l-[3px] border-l-accent">
+          <Sparkles size={16} className="text-accent shrink-0 mt-0.5" />
           <div>
-            <div style={{ fontSize: 11, color: 'var(--primary)', fontWeight: 600, marginBottom: 4 }}>IA en tiempo real</div>
-            <p className="insight-text">{insight}</p>
+            <div className="text-[10px] text-accent font-semibold uppercase tracking-wider mb-1">IA en tiempo real</div>
+            <p className="text-sm text-txt2 leading-relaxed">{insight}</p>
           </div>
         </div>
 
         <button className="btn btn-surface" onClick={handleClose}>
-          ■ Finalizar entrenamiento
+          Finalizar entrenamiento
         </button>
-      </div>
+      </motion.div>
     </div>
   );
 }

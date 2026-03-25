@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Rocket, Flame, Dumbbell, Wind, Footprints, Trophy, Heart, ArrowLeft, Sparkles, Wifi, UserCheck } from 'lucide-react';
 import { api } from '../api/client.js';
 
 const GOALS = [
-  { id: 'perder_grasa',        label: 'Perder grasa',    icon: '🔥' },
-  { id: 'ganar_musculo',       label: 'Ganar músculo',   icon: '💪' },
-  { id: 'mejorar_resistencia', label: 'Resistencia',     icon: '🏃' },
-  { id: 'flexibilidad',        label: 'Flexibilidad',    icon: '🧘' },
-  { id: 'rendimiento',         label: 'Rendimiento',     icon: '🏆' },
-  { id: 'salud_general',       label: 'Salud general',   icon: '❤️' },
+  { id: 'perder_grasa',        label: 'Perder grasa',    Icon: Flame },
+  { id: 'ganar_musculo',       label: 'Ganar músculo',   Icon: Dumbbell },
+  { id: 'mejorar_resistencia', label: 'Resistencia',     Icon: Footprints },
+  { id: 'flexibilidad',        label: 'Flexibilidad',    Icon: Wind },
+  { id: 'rendimiento',         label: 'Rendimiento',     Icon: Trophy },
+  { id: 'salud_general',       label: 'Salud general',   Icon: Heart },
 ];
 
 const DAYS      = [2, 3, 4, 5, 6];
@@ -24,6 +26,12 @@ const EQUIPMENT = [
   { id: 'calistenia',        label: 'Calistenia', icon: '🤸' },
 ];
 
+const stepVariants = {
+  enter:  { opacity: 0, x: 30 },
+  center: { opacity: 1, x: 0 },
+  exit:   { opacity: 0, x: -30 },
+};
+
 export default function Onboarding({ user, onComplete }) {
   const [step,     setStep]     = useState(0);
   const [goals,    setGoals]    = useState([]);
@@ -37,7 +45,6 @@ export default function Onboarding({ user, onComplete }) {
     user?.user_metadata?.full_name?.split(' ')[0] ?? 'Atleta'
   );
 
-  // Cargar nombre real desde perfil DB si user_metadata no lo tiene
   useEffect(() => {
     if (!user?.user_metadata?.full_name) {
       api.get('/profile').then(p => {
@@ -59,14 +66,12 @@ export default function Onboarding({ user, onComplete }) {
       const goalsStr = goals.join(', ') || 'fitness general';
       const equipStr = equip.join(', ')  || 'ninguno';
 
-      // 1. Guardar perfil — esto siempre debe completarse
       await api.patch('/profile', {
         goals:                { primary: goals[0] || null, all: goals },
         availability:         { days_per_week: days, session_duration: duration },
         onboarding_completed: true,
       });
 
-      // 2. Generar plan IA — si falla, igual avanzamos (el plan puede generarse luego)
       try {
         await api.post('/ai/generate-plan', {
           goals:         goalsStr,
@@ -76,7 +81,6 @@ export default function Onboarding({ user, onComplete }) {
           focus_areas:   goalsStr,
         });
       } catch (aiErr) {
-        // Plan no generado — el usuario puede generarlo desde Planes
         console.warn('Plan IA no generado:', aiErr.message);
       }
 
@@ -89,39 +93,50 @@ export default function Onboarding({ user, onComplete }) {
 
   return (
     <div className="onboard-wrap">
-      {/* Topbar: back + dots */}
+      {/* Topbar */}
       <div className="onboard-topbar">
         {step > 0
-          ? <button className="onboard-back" onClick={() => setStep(s => s - 1)}>←</button>
-          : <div style={{ width: 32 }} />
+          ? <button className="w-8 h-8 rounded-lg bg-surface2 flex items-center justify-center border-none cursor-pointer" onClick={() => setStep(s => s - 1)}>
+              <ArrowLeft size={16} className="text-txt2" />
+            </button>
+          : <div className="w-8" />
         }
         <div className="onboard-dots">
           {[0, 1, 2, 3].map(i => (
             <div key={i} className={`onboard-dot${step === i ? ' active' : step > i ? ' done' : ''}`} />
           ))}
         </div>
-        <div style={{ width: 32 }} />
+        <div className="w-8" />
       </div>
 
       <div className="onboard-body">
+        <AnimatePresence mode="wait">
+          <motion.div key={step} variants={stepVariants}
+            initial="enter" animate="center" exit="exit"
+            transition={{ duration: 0.25 }}
+          >
 
         {/* Step 0 — Bienvenida */}
         {step === 0 && (
           <div className="onboard-step">
-            <div className="onboard-hero-icon">🚀</div>
-            <h1 className="onboard-title">¡Hola, {name}!</h1>
-            <p className="onboard-sub">
+            <div className="w-20 h-20 rounded-2xl bg-accent/15 flex items-center justify-center mx-auto mb-6">
+              <Rocket size={36} className="text-accent" />
+            </div>
+            <h1 className="text-2xl font-extrabold mb-2 text-center">¡Hola, {name}!</h1>
+            <p className="text-sm text-txt3 text-center mb-8 leading-relaxed max-w-[280px] mx-auto">
               Configura tu experiencia en 4 pasos para que la IA genere tu plan perfecto.
             </p>
-            <div className="onboard-features">
+            <div className="flex flex-col gap-3">
               {[
-                { icon: '✦', text: 'Plan generado por IA en segundos' },
-                { icon: '📡', text: 'Sincronización con tu wearable' },
-                { icon: '👨‍💼', text: 'Conexión directa con tu entrenador' },
-              ].map(({ icon, text }) => (
-                <div key={text} className="onboard-feature-row">
-                  <span className="onboard-feature-icon">{icon}</span>
-                  <span>{text}</span>
+                { Icon: Sparkles, text: 'Plan generado por IA en segundos' },
+                { Icon: Wifi, text: 'Sincronización con tu wearable' },
+                { Icon: UserCheck, text: 'Conexión directa con tu entrenador' },
+              ].map(({ Icon, text }) => (
+                <div key={text} className="flex items-center gap-3.5 bg-surface2 rounded-xl px-4 py-3.5 border border-border">
+                  <div className="w-9 h-9 rounded-lg bg-accent/15 flex items-center justify-center shrink-0">
+                    <Icon size={16} className="text-accent" />
+                  </div>
+                  <span className="text-sm text-txt">{text}</span>
                 </div>
               ))}
             </div>
@@ -131,16 +146,16 @@ export default function Onboarding({ user, onComplete }) {
         {/* Step 1 — Objetivos */}
         {step === 1 && (
           <div className="onboard-step">
-            <h2 className="onboard-title">¿Cuál es tu objetivo?</h2>
-            <p className="onboard-sub">Selecciona uno o varios</p>
+            <h2 className="text-xl font-bold mb-1 text-center">¿Cuál es tu objetivo?</h2>
+            <p className="text-sm text-txt3 text-center mb-6">Selecciona uno o varios</p>
             <div className="onboard-chip-grid">
-              {GOALS.map(({ id, label, icon }) => (
+              {GOALS.map(({ id, label, Icon }) => (
                 <div
                   key={id}
                   className={`onboard-chip${goals.includes(id) ? ' selected' : ''}`}
                   onClick={() => toggleList(goals, setGoals, id)}
                 >
-                  <span className="chip-icon">{icon}</span>
+                  <Icon size={20} className={goals.includes(id) ? 'text-white' : 'text-txt3'} />
                   <span className="chip-label">{label}</span>
                 </div>
               ))}
@@ -151,10 +166,10 @@ export default function Onboarding({ user, onComplete }) {
         {/* Step 2 — Disponibilidad */}
         {step === 2 && (
           <div className="onboard-step">
-            <h2 className="onboard-title">¿Cuánto puedes entrenar?</h2>
-            <p className="onboard-sub">La IA adaptará la carga a tu disponibilidad</p>
+            <h2 className="text-xl font-bold mb-1 text-center">¿Cuánto puedes entrenar?</h2>
+            <p className="text-sm text-txt3 text-center mb-6">La IA adaptará la carga a tu disponibilidad</p>
 
-            <div className="onboard-label">Días por semana</div>
+            <div className="text-[10px] text-txt3 uppercase tracking-wider font-semibold mb-2.5">Días por semana</div>
             <div className="onboard-num-row">
               {DAYS.map(d => (
                 <div
@@ -165,7 +180,7 @@ export default function Onboarding({ user, onComplete }) {
               ))}
             </div>
 
-            <div className="onboard-label" style={{ marginTop: 24 }}>Duración por sesión</div>
+            <div className="text-[10px] text-txt3 uppercase tracking-wider font-semibold mb-2.5 mt-6">Duración por sesión</div>
             <div className="onboard-num-row">
               {DURATIONS.map(d => (
                 <div
@@ -176,9 +191,9 @@ export default function Onboarding({ user, onComplete }) {
               ))}
             </div>
 
-            <div className="insight-card" style={{ marginTop: 20 }}>
-              <span className="insight-icon">🧠</span>
-              <p className="insight-text">
+            <div className="mt-5 flex gap-3 items-start bg-surface2 rounded-xl p-4 border border-border">
+              <Sparkles size={16} className="text-accent shrink-0 mt-0.5" />
+              <p className="text-sm text-txt2 leading-relaxed">
                 Con {days} días × {duration} min la IA diseñará un plan de{' '}
                 {days * duration >= 210 ? 'volumen progresivo' : 'eficiencia máxima'}.
               </p>
@@ -189,27 +204,35 @@ export default function Onboarding({ user, onComplete }) {
         {/* Step 3 — Nivel + Equipo */}
         {step === 3 && (
           <div className="onboard-step">
-            <h2 className="onboard-title">Nivel y equipo</h2>
-            <p className="onboard-sub">Para calibrar la intensidad exacta</p>
+            <h2 className="text-xl font-bold mb-1 text-center">Nivel y equipo</h2>
+            <p className="text-sm text-txt3 text-center mb-6">Para calibrar la intensidad exacta</p>
 
-            <div className="onboard-label">Experiencia</div>
-            <div className="onboard-level-list">
+            <div className="text-[10px] text-txt3 uppercase tracking-wider font-semibold mb-2.5">Experiencia</div>
+            <div className="flex flex-col gap-2 mb-6">
               {LEVELS.map(({ id, label, desc }) => (
                 <div
                   key={id}
-                  className={`onboard-level-card${level === id ? ' selected' : ''}`}
+                  className={`flex items-center gap-3.5 px-4 py-3.5 rounded-xl border cursor-pointer transition-all ${
+                    level === id
+                      ? 'bg-accent/10 border-accent'
+                      : 'bg-surface2 border-border hover:border-txt3'
+                  }`}
                   onClick={() => setLevel(id)}
                 >
-                  <div className="onboard-level-check">{level === id ? '●' : '○'}</div>
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                    level === id ? 'border-accent' : 'border-txt3'
+                  }`}>
+                    {level === id && <div className="w-2.5 h-2.5 rounded-full bg-accent" />}
+                  </div>
                   <div>
-                    <div className="onboard-level-name">{label}</div>
-                    <div className="onboard-level-desc">{desc}</div>
+                    <div className="text-sm font-medium">{label}</div>
+                    <div className="text-xs text-txt3 mt-0.5">{desc}</div>
                   </div>
                 </div>
               ))}
             </div>
 
-            <div className="onboard-label" style={{ marginTop: 20 }}>Equipo disponible</div>
+            <div className="text-[10px] text-txt3 uppercase tracking-wider font-semibold mb-2.5">Equipo disponible</div>
             <div className="onboard-chip-grid">
               {EQUIPMENT.map(({ id, label, icon }) => (
                 <div
@@ -217,25 +240,28 @@ export default function Onboarding({ user, onComplete }) {
                   className={`onboard-chip${equip.includes(id) ? ' selected' : ''}`}
                   onClick={() => toggleList(equip, setEquip, id)}
                 >
-                  <span className="chip-icon">{icon}</span>
+                  <span className="text-lg">{icon}</span>
                   <span className="chip-label">{label}</span>
                 </div>
               ))}
             </div>
           </div>
         )}
+
+          </motion.div>
+        </AnimatePresence>
       </div>
 
-      {error && <p className="error-msg" style={{ padding: '0 20px 8px', textAlign: 'center' }}>{error}</p>}
+      {error && <p className="text-red-400 text-xs text-center px-5 pb-2">{error}</p>}
 
       <div className="onboard-footer">
         {step < 3 ? (
           <button className="btn btn-primary" onClick={() => setStep(s => s + 1)} disabled={!canNext}>
-            Continuar →
+            Continuar
           </button>
         ) : (
           <button className="btn btn-primary" onClick={finish} disabled={loading || !canNext}>
-            {loading ? '⏳ Generando tu plan...' : '✦ Crear mi plan con IA'}
+            {loading ? 'Generando tu plan...' : 'Crear mi plan con IA'}
           </button>
         )}
       </div>

@@ -1,191 +1,126 @@
-# FitnessAI Connect — Contexto del Proyecto
+# CLAUDE.md
 
-## ¿Qué es esto?
-Una startup de fitness tech que conecta entrenadores personales con usuarios mediante:
-- Entrenamientos 100% personalizados potenciados por IA
-- Adquisición de usuarios a través de redes sociales de entrenadores e influencers
-- Cobertura multideporte: gym, natación, ciclismo, running, yoga
-- Integración con wearables: Apple Watch (HealthKit), Garmin, Google Fit
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
----
+## Project overview
 
-## Estado actual del proyecto (Marzo 2026)
-MVP funcional con web app completa:
-
-### Frontend (React + Vite)
-- **Login/Registro** — Supabase Auth con email/password
-- **Onboarding** — Wizard de 4 pasos: bienvenida → objetivos → disponibilidad → nivel/equipo
-- **Home** — Saludo, workout del día, anillos de actividad, insight HRV, card del entrenador
-- **Planes** — Plan activo, ejercicios marcables, próximas sesiones, generación con IA
-- **Progreso** — Streak, stats grid, gráfico semanal (4s/3m/1a), análisis IA
-- **Perfil** — Avatar, plan activo, wearables (toggle), configuración, logout
-- **Chat** — Mensajería en tiempo real entrenador ↔ usuario (Supabase Realtime)
-- **Dashboard Coach** — Vista de entrenador: stats, lista de clientes, streaks
-- **WorkoutModal** — Sesión en vivo: FC (si wearable), calorías, cronómetro, progreso, insight IA
-
-### Backend (Node.js + Express)
-- `GET /api/home` — Datos de pantalla principal
-- `GET/POST/PATCH /api/workouts/*` — Planes, sesiones, ejercicios, series
-- `GET/POST /api/progress/*` — Stats, métricas, gráficos
-- `GET/PATCH/POST/DELETE /api/profile/*` — Perfil, wearables
-- `POST /api/ai/*` — Insights contextuales y generación de planes con IA
-- Middleware auth con JWT de Supabase (service_role)
-
-### Base de datos (Supabase / PostgreSQL)
-- 11 tablas + 1 vista con RLS habilitado en todas
-- Trigger auto-create profile al signup
-- 15 ejercicios de seed en español
-- Schema completo en `database/schema.sql`
-
-### Archivo legacy
-- `fitness-ai-mockup.html` — Mockup original HTML vanilla (ya no se usa)
+FitnessAI Connect: a LATAM fitness-tech platform connecting personal trainers with users. Features AI-generated workout plans (Groq/LLaMA), real-time coach↔user chat (Supabase Realtime), wearable integration, and a live workout session modal. Target market: Spanish-speaking users in Mexico, Argentina, Colombia.
 
 ---
 
-## Stack tecnológico (implementado)
-- **Frontend:** React 18 + Vite 5
-- **Backend:** Node.js + Express 4
-- **Base de datos:** Supabase (PostgreSQL + Auth + Realtime)
-- **IA:** Groq SDK (LLaMA 4 Scout 17B) — free tier
-- **Estilos:** CSS vanilla con design tokens
-- **Dev tools:** nodemon, `--env-file` para variables de entorno
+## Development commands
 
----
-
-## Modelo de negocio
-### Usuarios finales
-| Plan | Precio | Features clave |
-|------|--------|----------------|
-| Free | $0 | 3 planes básicos, 1 sesión/mes con entrenador |
-| Pro | $14.99/mes | IA ilimitada, wearables completos, chat con entrenador |
-| Elite | $34.99/mes | Todo Pro + 4 sesiones 1:1/mes, nutrición |
-
-### Entrenadores
-| Plan | Precio | Features clave |
-|------|--------|----------------|
-| Starter | Gratis (6 meses) | Hasta 5 clientes |
-| Pro | $49/mes | Clientes ilimitados, IA tools, 15% comisión |
-| Elite | $99/mes | Sin comisiones, branded app, API access |
-
----
-
-## Mercado objetivo inicial
-- **Geografía:** México, Argentina, Colombia (LATAM hispanohablante)
-- **Entrenadores:** digitales con 1K-50K seguidores en Instagram/TikTok
-- **Usuarios:** 25-40 años, fitness intermedio, smartphone + wearable
-
----
-
-## Métricas clave a lograr (Año 1)
-- 15,000 usuarios registrados
-- 500 entrenadores activos
-- $110,000 MRR
-- NPS > 55
-- Churn mensual < 4%
-- CAC blended < $10
-
----
-
-## Diseño y estilos
-```css
-/* Paleta de colores */
---bg: #0a0a0f
---surface: #13131a
---primary: #6ee7b7      /* verde menta */
---accent: #f472b6       /* rosa/coral */
---blue: #60a5fa
---orange: #fb923c
---text: #f1f5f9
---text-2: #94a3b8
-
-/* Tipografía */
---font-display: 'Syne'      /* títulos, números grandes */
---font-body: 'DM Sans'      /* texto general */
-```
-
----
-
-## Competidores a superar
-- **Trainerize** — sin IA real, UX antigua
-- **TrueCoach** — sin wearables ni comunidad
-- **Future** — muy caro ($149-199/mes), no escala
-- **Caliber** — solo gym/fuerza, solo USA
-
-## Ventaja competitiva (moat)
-1. Datos propietarios de entrenamiento en LATAM
-2. Efecto red de dos lados (entrenadores + usuarios)
-3. Comunidad local hispanohablante
-4. Integración profunda con todos los wearables
-
----
-
-## Comandos para desarrollo
 ```bash
-# Backend (terminal 1) — desde /backend
-npm install
-npm run dev
-# → http://localhost:3000
+# Backend — from /backend
+npm run dev        # nodemon on http://localhost:3000
+# Uses Node's native --env-file=.env (Node 21.7+), NOT dotenv
 
-# Frontend (terminal 2) — desde /frontend
-npm install
-npm run dev
-# → http://localhost:5173
+# Frontend — from /frontend
+npm run dev        # Vite on http://localhost:5173
+# Vite proxies /api/* → localhost:3000 (see vite.config.js)
 
-# Usar cmd (no PowerShell) si npm falla por ExecutionPolicy
+# On Windows: use cmd, not PowerShell (ExecutionPolicy may block npm)
 ```
+
+No test runner or linter is configured in this project.
 
 ---
 
-## Estructura del proyecto
-```
-dorcher/
-├── CLAUDE.md
-├── COMPONENTES-PENDIENTES.md
-├── fitness-ai-mockup.html          (legacy, no se usa)
-├── database/
-│   └── schema.sql                  (PostgreSQL + RLS + seeds)
-├── backend/
-│   ├── server.js                   (Express entry point)
-│   ├── package.json
-│   ├── .env / .env.example
-│   ├── middleware/auth.js          (JWT Supabase)
-│   └── routes/
-│       ├── home.js
-│       ├── workouts.js
-│       ├── progress.js
-│       ├── profile.js
-│       └── ai.js                   (Groq / LLaMA)
-├── frontend/
-│   ├── package.json
-│   ├── vite.config.js
-│   ├── .env / .env.example
-│   └── src/
-│       ├── App.jsx                 (Router + estado global)
-│       ├── index.css               (Design system completo)
-│       ├── main.jsx
-│       ├── api/client.js           (Supabase + HTTP client)
-│       ├── screens/
-│       │   ├── Login.jsx
-│       │   ├── Onboarding.jsx
-│       │   ├── Home.jsx
-│       │   ├── Plans.jsx
-│       │   ├── Progress.jsx
-│       │   ├── Profile.jsx
-│       │   ├── Chat.jsx
-│       │   └── DashboardCoach.jsx
-│       └── components/
-│           └── WorkoutModal.jsx
-```
+## Architecture
+
+### Frontend routing (no React Router)
+`App.jsx` manages all screen navigation via a single `activeScreen` state string. There is no URL-based routing — screens are conditionally rendered with a switch. The onboarding gate checks `profile?.onboarding_completed` and redirects before any screen renders.
+
+Auth flow: `supabase.auth.onAuthStateChange()` → fetch profile → detect trainer role (`isTrainer`) → gate app render until profile loads.
+
+### API layer (`frontend/src/api/client.js`)
+Every HTTP call goes through this wrapper. It fetches a fresh Supabase session token on **each request** (not cached) and injects it as `Authorization: Bearer <token>`. No request-level caching.
+
+### Backend auth (`backend/middleware/auth.js`)
+Uses `service_role` key to call `supabase.auth.getUser(token)`. Attaches `req.user` (Supabase user object) and `req.supabase` (client instance) to every request. No separate DB lookup for user identity — trusts the JWT.
+
+### Supabase client instantiation
+Each route file (`home.js`, `workouts.js`, etc.) creates its own Supabase client with `service_role`. There is no shared singleton.
+
+### AI integration (`backend/routes/ai.js`)
+Two endpoints:
+- `POST /ai/insight` — type-based prompts (recovery, workout_ready, etc.), auto-retry on 429 with exponential backoff (2s → 5s)
+- `POST /ai/generate-plan` — generates a 4-week plan as JSON; parses with regex (`text.match(/\{[\s\S]*\}/)`); archives previous active plan before creating new one
+
+After generating an insight, the DB insert happens **fire-and-forget** (async, after response is sent).
+
+### Workout streak logic (`backend/routes/workouts.js`)
+`updateStreak()` checks if the user completed a session **yesterday** (not today). Streak resets to 1 if no yesterday session. Level = `Math.floor(streak / 10) + 1`.
 
 ---
 
-## Notas para Claude Code
-- Mantener el estilo oscuro y la paleta de colores definida arriba
-- Las pantallas usan el patrón `.screen` con estado `activeScreen` en App.jsx
-- Priorizar mobile-first: todo debe verse bien en 390x844px (iPhone 14 Pro)
-- Los modales usan la clase `.modal-overlay` + `.modal-sheet` (bottom sheet style)
-- Cuando agregues ejercicios o datos, simularlos de forma realista (no "Lorem ipsum")
-- El backend usa `--env-file=.env` en los scripts de package.json (ES modules)
-- La IA usa Groq (LLaMA 4 Scout) — modelo: `meta-llama/llama-4-scout-17b-16e-instruct`
-- Al generar un nuevo plan, el backend archiva el plan anterior automáticamente
-- El WorkoutModal detecta si hay wearable conectado; sin wearable no simula FC
+## Key patterns to follow
+
+**Screen/modal patterns:**
+- All screens use `.screen` CSS class; active screen controlled by `activeScreen` state in `App.jsx`
+- Modals use `.modal-overlay` + `.modal-sheet` (bottom sheet pattern)
+- Mobile-first: design for 390×844px (iPhone 14 Pro)
+
+**Style system (in `frontend/src/index.css`):**
+```css
+--bg: #0D0D0D         /* page background */
+--surface: #1A1A1A    /* card/panel background */
+--surface2: #222222   /* secondary surface */
+--accent: #FF5733     /* orange — primary action color */
+--green: #4CAF50      /* success, streaks */
+--blue: #60a5fa       /* info metrics */
+--border: #2A2A2A     /* subtle borders */
+--font-body: 'Inter'              /* body text */
+--font-metric: 'Barlow Condensed' /* large numbers, stats */
+```
+- Dark theme with `#1A1A1A` cards, `1px solid #2A2A2A` borders, no box-shadows
+- Style reference: "Nike Training Club meets Strong app"
+- Uses Tailwind CSS v4 via `@tailwindcss/vite` plugin + `@theme` block for custom tokens
+- Framer-motion for page transitions (AnimatePresence), card entrances, ring fill, nav indicator
+- Recharts for weekly volume chart (AreaChart with orange gradient)
+- Lucide-react for all icons (no emoji icons in UI)
+
+**Data patterns:**
+- Use realistic Spanish-language data for any exercise/user content (not placeholder text)
+- Supabase queries use nested selects for relationships: e.g., `trainer_profiles(full_name, rating)`
+- Use upsert with `onConflict` for idempotent writes (see sets endpoint in `workouts.js`)
+
+**WorkoutModal wearable detection:**
+- If `hasWearable=true`: simulates HR with sine wave oscillation
+- If false: HR displays as `—` (never simulate HR without wearable)
+
+**Profile updates (`backend/routes/profile.js`):**
+- Only a whitelisted set of fields is accepted in PATCH — do not bypass this
+
+---
+
+## Environment variables
+
+**Backend (`backend/.env`):**
+```
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+GROQ_API_KEY=
+PORT=3000
+FRONTEND_URL=http://localhost:5173
+NODE_ENV=development
+```
+
+**Frontend (`frontend/.env`):**
+```
+VITE_SUPABASE_URL=
+VITE_SUPABASE_ANON_KEY=
+VITE_API_URL=http://localhost:3000/api
+```
+
+Note: `VITE_API_URL` is used in production; in dev, Vite's proxy handles `/api` routes so CORS is not needed.
+
+---
+
+## Database
+
+Schema at `database/schema.sql`. 11 tables + 1 view, RLS enabled on all. Key notes:
+- Trigger auto-creates a `profiles` row on signup
+- 15 seed exercises in Spanish
+- Backend enforces user scoping via `req.user.id` in queries (not via RLS on service_role calls)

@@ -1,4 +1,7 @@
 import { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { Sparkles, Flame } from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { api } from '../api/client.js';
 
 const PERIODS = [
@@ -22,119 +25,102 @@ export default function Progress() {
 
   useEffect(() => {
     if (!stats) return;
-    api.get(`/progress/chart?period=${period}`)
-      .then(setChart)
-      .catch(console.error);
+    api.get(`/progress/chart?period=${period}`).then(setChart).catch(console.error);
   }, [period]);
 
-  if (loading) return <div style={{ padding: 24, color: 'var(--text-2)' }}>Cargando...</div>;
+  if (loading) return <div className="p-10 text-txt3 text-sm">Cargando...</div>;
   if (!stats)  return null;
 
-  const maxVal = Math.max(...chart.map(c => c.val), 1);
-
   const gridStats = [
-    { num: stats.total_workouts, desc: 'Total este mes',       color: 'var(--primary)' },
-    { num: stats.total_calories > 999 ? `${(stats.total_calories/1000).toFixed(1)}k` : stats.total_calories, desc: 'Calorías quemadas', color: 'var(--accent)' },
-    { num: `${stats.total_hours}h`, desc: 'Tiempo este mes',   color: 'var(--blue)' },
-    { num: stats.streak,            desc: 'Racha actual (días)', color: 'var(--orange)' },
+    { num: stats.total_workouts, desc: 'Este mes',       color: 'text-accent' },
+    { num: stats.total_calories > 999 ? `${(stats.total_calories/1000).toFixed(1)}k` : stats.total_calories, desc: 'Calorías', color: 'text-green' },
+    { num: `${stats.total_hours}h`, desc: 'Tiempo',      color: 'text-blue' },
+    { num: stats.streak,            desc: 'Racha (días)', color: 'text-[#fb923c]' },
   ];
 
   return (
     <div>
-      <div className="section" style={{ paddingBottom: 0 }}>
-        <div className="section-title">
-          Progreso
-          <span style={{
-            fontSize: 12, fontFamily: 'var(--font-body)', fontWeight: 500,
-            color: 'var(--primary)', background: 'var(--primary-dim)',
-            padding: '3px 8px', borderRadius: 20,
-          }}>
-            ↑ este mes
-          </span>
-        </div>
+      <div className="section pb-0">
+        <p className="text-[10px] text-txt3 uppercase tracking-wider mb-1">Tu progreso</p>
+        <h1 className="text-[32px] font-extrabold tracking-tight leading-none">Resumen</h1>
       </div>
 
-      {/* Streak banner */}
+      {/* Streak card — fondo naranja sólido */}
       <div className="section">
-        <div className="streak-banner">
-          <div className="streak-left">
-            <span className="streak-fire">🔥</span>
+        <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.1 }}
+          className="bg-accent rounded-2xl p-5 flex items-center justify-between"
+        >
+          <div className="flex items-center gap-3.5">
+            <Flame size={32} className="text-white" />
             <div>
-              <div className="streak-days">{stats.streak} días de racha</div>
-              <div className="streak-label">¡Sigue así!</div>
+              <div className="font-metric text-4xl font-bold text-white leading-none">{stats.streak}</div>
+              <div className="text-white/70 text-xs mt-1">Días de racha</div>
             </div>
           </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 12, color: 'var(--text-2)' }}>Nivel {stats.level}</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{stats.level_name}</div>
+          <div className="text-right">
+            <div className="text-white/70 text-xs">Nivel {stats.level}</div>
+            <div className="text-white font-semibold text-sm">{stats.level_name}</div>
           </div>
-        </div>
+        </motion.div>
       </div>
 
-      {/* Stats grid */}
-      <div className="section">
-        <div className="stats-grid">
-          {gridStats.map(({ num, desc, color }) => (
-            <div className="stat-card" key={desc}>
-              <div className="num" style={{ color }}>{num}</div>
-              <div className="desc">{desc}</div>
-            </div>
+      {/* Stats grid — números grandes */}
+      <div className="section pt-0">
+        <div className="grid grid-cols-2 gap-2.5">
+          {gridStats.map(({ num, desc, color }, i) => (
+            <motion.div key={desc} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15 + i * 0.05 }}
+              className="card"
+            >
+              <div className={`font-metric text-[48px] font-bold leading-none ${color}`}>{num}</div>
+              <div className="text-[10px] text-txt3 uppercase tracking-wider mt-2">{desc}</div>
+            </motion.div>
           ))}
         </div>
       </div>
 
-      {/* Weekly chart */}
-      <div className="section">
+      {/* Chart — recharts */}
+      <div className="section pt-0">
         <div className="card">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>Volumen semanal (min)</span>
-            <div style={{ display: 'flex', gap: 6 }}>
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-[10px] text-txt3 uppercase tracking-wider font-semibold">Volumen semanal</span>
+            <div className="flex gap-1">
               {PERIODS.map(p => (
-                <button
-                  key={p.key}
-                  onClick={() => setPeriod(p.key)}
-                  style={{
-                    background:  period === p.key ? 'var(--primary-dim)' : 'var(--surface2)',
-                    color:       period === p.key ? 'var(--primary)' : 'var(--text-2)',
-                    border:      period === p.key ? '1px solid rgba(110,231,183,0.3)' : '1px solid var(--border)',
-                    borderRadius: 8, padding: '4px 8px', fontSize: 12, cursor: 'pointer',
-                  }}
-                >
-                  {p.label}
-                </button>
+                <button key={p.key} onClick={() => setPeriod(p.key)}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-semibold border-none cursor-pointer transition-all ${
+                    period === p.key ? 'bg-accent text-white' : 'bg-surface2 text-txt3'
+                  }`}
+                >{p.label}</button>
               ))}
             </div>
           </div>
-          <div className="chart-wrap">
-            <div className="bars">
-              {chart.map((bar, i) => {
-                const isLast = i === chart.length - 1;
-                const height = Math.round((bar.val / maxVal) * 80);
-                return (
-                  <div className="bar-col" key={bar.label}>
-                    <div
-                      className="bar"
-                      style={{
-                        height: Math.max(height, 4),
-                        background: isLast ? 'var(--primary)' : 'rgba(96,165,250,0.6)',
-                      }}
-                    />
-                    <span className="bar-lbl">{bar.label}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <ResponsiveContainer width="100%" height={120}>
+            <AreaChart data={chart.map(c => ({ name: c.label, val: c.val }))}>
+              <defs>
+                <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#FF5733" stopOpacity={0.4} />
+                  <stop offset="100%" stopColor="#FF5733" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#555' }} axisLine={false} tickLine={false} />
+              <YAxis hide />
+              <Tooltip
+                contentStyle={{ background: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: 8, fontSize: 12, color: '#fff' }}
+                itemStyle={{ color: '#FF5733' }}
+              />
+              <Area type="monotone" dataKey="val" stroke="#FF5733" strokeWidth={2} fill="url(#grad)" />
+            </AreaChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
       {/* AI insight */}
-      <div className="section">
-        <div className="insight-card">
-          <span className="insight-icon">📈</span>
-          <p className="insight-text">
+      <div className="section pt-0">
+        <div className="card border-l-[3px] border-l-accent flex gap-3 items-start">
+          <Sparkles size={16} className="text-accent shrink-0 mt-0.5" />
+          <p className="text-sm text-txt2 leading-relaxed">
             Llevas {stats.streak} días consecutivos entrenando. Nivel {stats.level_name} desbloqueado.
-            {stats.total_workouts >= 10 && ' ¡Este mes superaste los 10 entrenamientos!'}
+            {stats.total_workouts >= 10 && ' Este mes superaste los 10 entrenamientos.'}
           </p>
         </div>
       </div>

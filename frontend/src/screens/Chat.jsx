@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { Send, Dumbbell } from 'lucide-react';
 import { supabase } from '../api/client.js';
 
 export default function Chat({ userId, trainerId, trainerName }) {
@@ -10,54 +11,30 @@ export default function Chat({ userId, trainerId, trainerName }) {
   useEffect(() => {
     if (!trainerId) { setLoading(false); return; }
 
-    // Cargar mensajes existentes
-    supabase
-      .from('messages')
-      .select('*')
-      .or(
-        `and(sender_id.eq.${userId},receiver_id.eq.${trainerId}),` +
-        `and(sender_id.eq.${trainerId},receiver_id.eq.${userId})`
-      )
+    supabase.from('messages').select('*')
+      .or(`and(sender_id.eq.${userId},receiver_id.eq.${trainerId}),and(sender_id.eq.${trainerId},receiver_id.eq.${userId})`)
       .order('created_at', { ascending: true })
       .then(({ data }) => { setMessages(data || []); setLoading(false); });
 
-    // Suscripción en tiempo real
-    const channel = supabase
-      .channel(`chat:${userId}:${trainerId}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages', filter: `receiver_id=eq.${userId}` },
+    const channel = supabase.channel(`chat:${userId}:${trainerId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `receiver_id=eq.${userId}` },
         payload => setMessages(m => [...m, payload.new])
-      )
-      .subscribe();
+      ).subscribe();
 
     return () => supabase.removeChannel(channel);
   }, [userId, trainerId]);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   async function send(e) {
     e.preventDefault();
     if (!text.trim() || !trainerId) return;
-
     const content = text.trim();
     setText('');
-
-    // Optimistic update
     const temp = { id: `tmp-${Date.now()}`, sender_id: userId, receiver_id: trainerId, content, created_at: new Date().toISOString(), _tmp: true };
     setMessages(m => [...m, temp]);
-
-    const { data, error } = await supabase
-      .from('messages')
-      .insert({ sender_id: userId, receiver_id: trainerId, content })
-      .select()
-      .single();
-
-    if (!error && data) {
-      setMessages(m => m.map(msg => msg._tmp && msg.id === temp.id ? data : msg));
-    }
+    const { data, error } = await supabase.from('messages').insert({ sender_id: userId, receiver_id: trainerId, content }).select().single();
+    if (!error && data) setMessages(m => m.map(msg => msg._tmp && msg.id === temp.id ? data : msg));
   }
 
   function fmt(ts) {
@@ -66,51 +43,53 @@ export default function Chat({ userId, trainerId, trainerName }) {
 
   if (!trainerId) {
     return (
-      <div className="chat-empty">
-        <span style={{ fontSize: 44, display: 'block', marginBottom: 14 }}>💬</span>
-        <p style={{ fontWeight: 600, marginBottom: 6 }}>Sin entrenador asignado</p>
-        <p style={{ fontSize: 12, color: 'var(--text-3)' }}>
-          Visita el Marketplace para encontrar al tuyo.
+      <div className="flex-1 flex flex-col items-center justify-center px-8 text-center">
+        {/* SVG illustration — dumbbell */}
+        <div className="w-24 h-24 rounded-full bg-accent/10 flex items-center justify-center mb-6">
+          <Dumbbell size={40} className="text-accent" />
+        </div>
+        <h2 className="text-lg font-bold mb-2">Tu entrenador personal te espera</h2>
+        <p className="text-sm text-txt3 mb-6 leading-relaxed max-w-[260px]">
+          Conecta con un coach certificado para llevar tu entrenamiento al siguiente nivel.
         </p>
+        <button className="btn btn-primary btn-sm">
+          Explorar entrenadores
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="chat-wrap">
+    <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="chat-header">
-        <div className="chat-avatar">💪</div>
-        <div style={{ flex: 1 }}>
-          <div className="chat-trainer-name">{trainerName ?? 'Entrenador'}</div>
-          <div className="chat-status">● En línea</div>
+      <div className="shrink-0 flex items-center gap-3.5 px-5 pt-[58px] pb-4 bg-surface border-b border-border">
+        <div className="w-10 h-10 rounded-xl bg-accent/20 flex items-center justify-center text-accent font-bold text-lg shrink-0">
+          {trainerName?.[0] ?? '?'}
         </div>
-        <div style={{ fontSize: 20 }}>📞</div>
+        <div className="flex-1">
+          <div className="text-sm font-semibold">{trainerName ?? 'Entrenador'}</div>
+          <div className="text-xs text-green flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green" /> En línea</div>
+        </div>
       </div>
 
       {/* Messages */}
-      <div className="chat-messages">
-        {loading && (
-          <div style={{ textAlign: 'center', color: 'var(--text-2)', padding: 32 }}>
-            Cargando mensajes...
-          </div>
-        )}
-
+      <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-1.5" style={{ scrollbarWidth: 'none' }}>
+        {loading && <div className="text-center text-txt3 py-8 text-sm">Cargando mensajes...</div>}
         {!loading && messages.length === 0 && (
-          <div className="chat-no-messages">
-            <span style={{ fontSize: 36, display: 'block', marginBottom: 10 }}>👋</span>
-            <p>¡Envía tu primer mensaje a {trainerName ?? 'tu entrenador'}!</p>
-          </div>
+          <div className="m-auto text-center text-txt3 text-sm">Envía tu primer mensaje</div>
         )}
-
         {messages.map(msg => {
           const mine = msg.sender_id === userId;
           return (
-            <div key={msg.id} className={`chat-bubble-wrap${mine ? ' mine' : ''}`}>
-              <div className={`chat-bubble${mine ? ' mine' : ' theirs'}`}>
+            <div key={msg.id} className={`flex flex-col mb-1 ${mine ? 'items-end' : 'items-start'}`}>
+              <div className={`max-w-[78%] px-3.5 py-2.5 text-sm leading-snug ${
+                mine
+                  ? 'bg-accent text-white rounded-2xl rounded-br-sm'
+                  : 'bg-surface2 text-txt rounded-2xl rounded-bl-sm'
+              }`}>
                 {msg.content}
               </div>
-              <div className="chat-time">{fmt(msg.created_at)}</div>
+              <span className="text-[10px] text-txt3 mt-1 px-1">{fmt(msg.created_at)}</span>
             </div>
           );
         })}
@@ -118,17 +97,17 @@ export default function Chat({ userId, trainerId, trainerName }) {
       </div>
 
       {/* Input */}
-      <form className="chat-input-wrap" onSubmit={send}>
+      <form className="shrink-0 flex gap-2 items-center px-4 py-3 pb-[96px] bg-bg border-t border-border" onSubmit={send}>
         <input
-          className="chat-input"
-          type="text"
-          placeholder="Escribe un mensaje..."
-          value={text}
-          onChange={e => setText(e.target.value)}
-          autoComplete="off"
+          className="flex-1 bg-surface border border-border rounded-full px-4 py-2.5 text-sm text-txt outline-none focus:border-accent transition-colors"
+          style={{ fontFamily: 'var(--font-body)' }}
+          type="text" placeholder="Escribe un mensaje..." value={text}
+          onChange={e => setText(e.target.value)} autoComplete="off"
         />
-        <button type="submit" className="chat-send-btn" disabled={!text.trim()}>
-          ↑
+        <button type="submit" disabled={!text.trim()}
+          className="w-10 h-10 rounded-full bg-accent text-white flex items-center justify-center shrink-0 border-none cursor-pointer disabled:opacity-30 transition-opacity"
+        >
+          <Send size={16} />
         </button>
       </form>
     </div>

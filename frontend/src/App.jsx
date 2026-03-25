@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Home as HomeIcon, Dumbbell, TrendingUp, MessageCircle, User } from 'lucide-react';
 import { supabase, api } from './api/client.js';
 import Login          from './screens/Login.jsx';
 import Onboarding     from './screens/Onboarding.jsx';
@@ -11,12 +13,20 @@ import DashboardCoach from './screens/DashboardCoach.jsx';
 import WorkoutModal   from './components/WorkoutModal.jsx';
 
 const NAV = [
-  { id: 'home',     label: 'Inicio',  icon: HomeIcon     },
-  { id: 'plans',    label: 'Planes',  icon: DumbbellIcon },
-  { id: 'progress', label: 'Progreso',icon: ChartIcon    },
-  { id: 'chat',     label: 'Chat',    icon: ChatIcon     },
-  { id: 'profile',  label: 'Perfil',  icon: UserIcon     },
+  { id: 'home',     label: 'Inicio',   icon: HomeIcon     },
+  { id: 'plans',    label: 'Planes',   icon: Dumbbell     },
+  { id: 'progress', label: 'Progreso', icon: TrendingUp   },
+  { id: 'chat',     label: 'Chat',     icon: MessageCircle },
+  { id: 'profile',  label: 'Perfil',   icon: User         },
 ];
+
+const SCREENS = { home: Home, plans: Plans, progress: Progress, profile: Profile };
+
+const pageVariants = {
+  initial:  { opacity: 0, y: 12 },
+  animate:  { opacity: 1, y: 0, transition: { duration: 0.25, ease: 'easeOut' } },
+  exit:     { opacity: 0, y: -8, transition: { duration: 0.15 } },
+};
 
 export default function App() {
   const [session,       setSession]       = useState(null);
@@ -28,7 +38,6 @@ export default function App() {
   const [activeSession, setActiveSession] = useState(null);
   const [clock,         setClock]         = useState(getTime());
 
-  // Auth listener
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -41,7 +50,6 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load profile + check trainer role when session starts
   useEffect(() => {
     if (!session) return;
     setProfileLoad(true);
@@ -55,7 +63,6 @@ export default function App() {
     }).catch(() => setProfileLoad(false));
   }, [session]);
 
-  // Clock
   useEffect(() => {
     const t = setInterval(() => setClock(getTime()), 10000);
     return () => clearInterval(t);
@@ -63,41 +70,29 @@ export default function App() {
 
   if (loading || profileLoad) return null;
   if (!session) return <Login />;
-  if (!profile) return null;  // Esperar a que cargue el perfil antes de decidir onboarding
+  if (!profile) return null;
 
   const showCoach = isTrainer && activeScreen === 'coach';
 
   return (
     <div>
-      <div className="page-header">
-        <h1>FitnessAI Connect</h1>
-        <p>Web preview — MVP con Supabase + Node.js + Gemini</p>
-      </div>
-
       <div className="phone-scene">
         <div className="phone-frame">
-          <div className="phone-notch">
-            <div className="notch-speaker" />
-            <div className="notch-camera" />
-          </div>
-          <div className="phone-btn btn-vol-up" />
-          <div className="phone-btn btn-vol-down" />
-          <div className="phone-btn btn-power" />
-
+          <div className="phone-notch" />
           <div className="phone-screen">
             {/* Status bar */}
             <div className="status-bar">
-              <span className="status-time">{clock}</span>
-              <div className="status-icons">
-                <span style={{ fontSize: 12 }}>●●●</span>
-                <span style={{ fontSize: 12 }}>WiFi</span>
-                <span style={{ fontSize: 12 }}>100%</span>
+              <span className="font-semibold text-[15px] tracking-tight">{clock}</span>
+              <div className="flex items-center gap-1.5">
+                <svg viewBox="0 0 18 14" width="15" height="13" fill="currentColor"><rect x="0" y="8" width="3" height="6" rx="1"/><rect x="5" y="5" width="3" height="9" rx="1"/><rect x="10" y="2" width="3" height="12" rx="1"/><rect x="15" y="0" width="3" height="14" rx="1" opacity="0.3"/></svg>
+                <svg viewBox="0 0 18 14" width="15" height="13"><path d="M1 5 Q9 -1 17 5" strokeWidth="1.5" stroke="currentColor" fill="none" strokeLinecap="round"/><path d="M4 8.5 Q9 4.5 14 8.5" strokeWidth="1.5" stroke="currentColor" fill="none" strokeLinecap="round"/><circle cx="9" cy="12" r="1.5" fill="currentColor"/></svg>
+                <svg viewBox="0 0 22 12" width="19" height="11"><rect x="0" y="1" width="18" height="10" rx="2" stroke="currentColor" strokeWidth="1" fill="none"/><rect x="18.5" y="3.5" width="2" height="5" rx="1" fill="currentColor" opacity="0.5"/><rect x="1.5" y="2.5" width="13" height="7" rx="1.2" fill="currentColor"/></svg>
               </div>
             </div>
 
-            {/* Onboarding — antes de la app principal */}
+            {/* Onboarding gate */}
             {!profile?.onboarding_completed && (
-              <div className="screen active" style={{ zIndex: 150 }}>
+              <div className="screen" style={{ opacity: 1, pointerEvents: 'all', zIndex: 150 }}>
                 <Onboarding
                   user={session.user}
                   onComplete={() => setProfile(p => ({ ...p, onboarding_completed: true }))}
@@ -107,15 +102,11 @@ export default function App() {
 
             {profile?.onboarding_completed && (
               <>
-                {/* Dashboard Coach — pantalla completa encima del nav */}
+                {/* Coach dashboard overlay */}
                 {showCoach && (
-                  <div className="screen active" style={{ zIndex: 100 }}>
-                    <div style={{ padding: '8px 20px 0' }}>
-                      <button
-                        className="btn btn-surface btn-sm"
-                        style={{ width: 'auto' }}
-                        onClick={() => setActiveScreen('profile')}
-                      >
+                  <div className="screen" style={{ opacity: 1, pointerEvents: 'all', zIndex: 100 }}>
+                    <div className="px-5 pt-2">
+                      <button className="btn btn-surface btn-sm w-auto" onClick={() => setActiveScreen('profile')}>
                         ← Volver
                       </button>
                     </div>
@@ -123,46 +114,54 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Screens normales */}
-                {NAV.map(({ id }) => {
-                  if (id === 'chat') {
+                {/* Main screens with transitions */}
+                <AnimatePresence mode="wait">
+                  {NAV.map(({ id }) => {
+                    if (activeScreen !== id) return null;
+                    if (id === 'chat') {
+                      return (
+                        <motion.div key="chat" className="screen screen--chat" style={{ opacity: 1, pointerEvents: 'all' }}
+                          variants={pageVariants} initial="initial" animate="animate" exit="exit"
+                        >
+                          <Chat userId={session.user.id} trainerId={profile?.trainer_id ?? null} trainerName={profile?.trainer_profiles?.full_name ?? null} />
+                        </motion.div>
+                      );
+                    }
+                    const Screen = SCREENS[id];
                     return (
-                      <div key="chat" className={`screen screen--chat${activeScreen === 'chat' ? ' active' : ''}`}>
-                        <Chat
-                          userId={session.user.id}
-                          trainerId={profile?.trainer_id ?? null}
-                          trainerName={profile?.trainer_profiles?.full_name ?? null}
-                        />
-                      </div>
+                      <motion.div key={id} className="screen" style={{ opacity: 1, pointerEvents: 'all' }}
+                        variants={pageVariants} initial="initial" animate="animate" exit="exit"
+                      >
+                        <Screen onStartWorkout={setActiveSession} onNavigate={setActiveScreen} isTrainer={isTrainer} />
+                      </motion.div>
                     );
-                  }
-
-                  const SCREENS = { home: Home, plans: Plans, progress: Progress, profile: Profile };
-                  const Screen  = SCREENS[id];
-                  return (
-                    <div key={id} className={`screen${activeScreen === id ? ' active' : ''}`}>
-                      <Screen
-                        onStartWorkout={setActiveSession}
-                        onNavigate={setActiveScreen}
-                        isTrainer={isTrainer}
-                      />
-                    </div>
-                  );
-                })}
+                  })}
+                </AnimatePresence>
 
                 {/* Bottom nav */}
                 {!showCoach && (
                   <nav className="bottom-nav">
-                    {NAV.map(({ id, label, icon: Icon }) => (
-                      <div
-                        key={id}
-                        className={`nav-item${activeScreen === id ? ' active' : ''}`}
-                        onClick={() => setActiveScreen(id)}
-                      >
-                        <div className="nav-icon"><Icon /></div>
-                        <span className="nav-label">{label}</span>
-                      </div>
-                    ))}
+                    {NAV.map(({ id, label, icon: Icon }) => {
+                      const isActive = activeScreen === id;
+                      return (
+                        <button key={id} onClick={() => setActiveScreen(id)}
+                          className="flex flex-col items-center gap-1 flex-1 pt-2 bg-transparent border-none cursor-pointer relative"
+                        >
+                          {isActive && (
+                            <motion.div layoutId="nav-indicator"
+                              className="absolute -top-[1px] left-1/2 -translate-x-1/2 w-8 h-[3px] rounded-full bg-accent"
+                              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                            />
+                          )}
+                          <Icon size={20} strokeWidth={isActive ? 2.2 : 1.5}
+                            className={`transition-colors duration-200 ${isActive ? 'text-accent' : 'text-txt3'}`}
+                          />
+                          <span className={`text-[10px] font-medium transition-colors duration-200 ${isActive ? 'text-accent' : 'text-txt3'}`}>
+                            {label}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </nav>
                 )}
 
@@ -186,9 +185,3 @@ export default function App() {
 function getTime() {
   return new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
-
-function HomeIcon()     { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>; }
-function DumbbellIcon() { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6.5 6.5h11M6.5 17.5h11M3 9.5h18M3 14.5h18"/></svg>; }
-function ChartIcon()    { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>; }
-function ChatIcon()     { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>; }
-function UserIcon()     { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>; }
