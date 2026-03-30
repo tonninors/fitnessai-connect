@@ -111,6 +111,7 @@ body {
   background: var(--color-surface); color: var(--color-txt2);
   border: 1px solid var(--color-border);
 }
+.btn-surface:hover { background: var(--color-surface2); border-color: #3a3a3a; }
 .btn-sm { padding: 8px 14px; font-size: 12px; border-radius: 10px; width: auto; }
 
 /* ── PILLS ── */
@@ -140,6 +141,12 @@ body {
 }
 
 /* ── LIVE METRICS ── */
+.live-badge {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(239,68,68,0.12); color: #ef4444;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 4px 10px; border-radius: 20px;
+}
 .live-dot {
   width: 8px; height: 8px; border-radius: 50%; background: #ef4444;
   animation: pulse 1.5s infinite;
@@ -190,4 +197,51 @@ body {
 @keyframes ring-fill {
   from { stroke-dashoffset: var(--ring-circ); }
   to   { stroke-dashoffset: var(--ring-offset); }
+}
+
+/* ── PHONE SCENE ── */
+.phone-scene { display: flex; justify-content: center; align-items: flex-start; }
+
+/* ── LOGIN CARD ── */
+.login-card {
+  width: 100%; max-width: 380px;
+  padding: 36px 28px 28px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 24px;
+}
+.login-logo {
+  font-size: 22px; font-weight: 800; letter-spacing: -0.03em;
+  color: var(--color-txt); text-align: center; margin-bottom: 6px;
+}
+.login-sub {
+  font-size: 13px; color: var(--color-txt3); text-align: center; margin-bottom: 28px;
+}
+.login-switch {
+  font-size: 12px; color: var(--color-txt3); text-align: center; margin-top: 20px;
+}
+.login-switch button {
+  color: var(--color-accent); font-weight: 600;
+  background: none; border: none; cursor: pointer;
+  margin-left: 4px; padding: 0;
+}
+.input-group { margin-bottom: 14px; }
+
+/* ── SKELETON ── */
+.skeleton {
+  background: linear-gradient(90deg, var(--color-surface2) 0%, #2a2a2a 50%, var(--color-surface2) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s infinite ease-in-out;
+  border-radius: 10px;
+}
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── REDUCED MOTION ── */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; background: var(--color-surface2); }
+  .live-dot  { animation: none; }
+  .onboard-dot { transition: none; }
 }

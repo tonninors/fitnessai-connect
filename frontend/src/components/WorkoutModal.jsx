@@ -1,17 +1,20 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Heart, Flame, Clock, Sparkles, X } from 'lucide-react';
+import { Heart, Flame, Clock, Sparkles, X, Minus } from 'lucide-react';
 import { api } from '../api/client.js';
 
-export default function WorkoutModal({ session, hasWearable, onClose }) {
-  const [hr,           setHr]           = useState(null);
-  const [calories,     setCalories]     = useState(0);
-  const [seconds,      setSeconds]      = useState(0);
-  const [progress,     setProgress]     = useState(0);
-  const [insight,      setInsight]      = useState('Tu FC está en zona óptima. Mantén el tempo 2-1-2.');
-  const [metricPopup,  setMetricPopup]  = useState(null);
-  const intervalRef = useRef(null);
-  const exercises = session?.session_exercises ?? [];
+export default function WorkoutModal({ session, hasWearable, onClose, onMinimize }) {
+  const [hr,          setHr]          = useState(null);
+  const [calories,    setCalories]    = useState(0);
+  const [seconds,     setSeconds]     = useState(0);
+  const [progress,    setProgress]    = useState(0);
+  const [insight,     setInsight]     = useState('Tu FC está en zona óptima. Mantén el tempo 2-1-2.');
+  const [metricPopup, setMetricPopup] = useState(null);
+
+  // Wall-clock start time → el timer no se desincroniza aunque el tab quede en background
+  const startTimeRef = useRef(Date.now());
+  const intervalRef  = useRef(null);
+  const exercises    = session?.session_exercises ?? [];
 
   useEffect(() => {
     api.post(`/workouts/sessions/${session.id}/start`, {}).catch(console.error);
@@ -21,13 +24,16 @@ export default function WorkoutModal({ session, hasWearable, onClose }) {
       context: { session_name: session.name, rpe_target: session.rpe_target },
     }).then(d => d.insight && setInsight(d.insight)).catch(console.error);
 
+    startTimeRef.current = Date.now();
+
     intervalRef.current = setInterval(() => {
-      setSeconds(s => s + 1);
+      const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+      setSeconds(elapsed);
       if (hasWearable) {
         setHr(h => Math.round((h ?? 132) + 8 * Math.sin(Date.now() / 4000) + (Math.random() - 0.5) * 4));
       }
       const rpe = session.rpe_target ?? 6;
-      setCalories(c => +(c + (rpe * 0.03)).toFixed(1));
+      setCalories(+(elapsed * (rpe * 0.03) / 60).toFixed(1));
     }, 1000);
 
     return () => clearInterval(intervalRef.current);
@@ -42,7 +48,7 @@ export default function WorkoutModal({ session, hasWearable, onClose }) {
   const currentExIdx = Math.min(Math.floor(progress / 100 * exercises.length), exercises.length - 1);
   const currentEx    = exercises[currentExIdx];
 
-  async function handleClose() {
+  async function handleFinish() {
     clearInterval(intervalRef.current);
     await api.patch(`/workouts/sessions/${session.id}/complete`, {
       actual_duration: Math.round(seconds / 60),
@@ -73,25 +79,35 @@ export default function WorkoutModal({ session, hasWearable, onClose }) {
   };
 
   return (
-    <div className="modal-overlay open" onClick={e => { if (e.target === e.currentTarget) setMetricPopup(null); }}>
+    <div className="modal-overlay open" onClick={e => { if (e.target === e.currentTarget) onMinimize?.(); }}>
       <motion.div className="modal-sheet"
         initial={{ y: '100%' }} animate={{ y: 0 }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
       >
         <div className="modal-handle" />
 
-        {/* Live badge */}
+        {/* Header */}
         <div className="flex items-center gap-2 mb-4">
           <div className="live-badge">
             <div className="live-dot" />
             {hasWearable ? 'En vivo · Apple Watch' : 'En vivo'}
           </div>
           <div className="flex-1" />
+          {/* Minimizar — sigue corriendo en background */}
           <button className="w-8 h-8 rounded-lg bg-surface2 flex items-center justify-center border-none cursor-pointer"
-            onClick={() => setMetricPopup(null)}
+            onClick={() => onMinimize?.()}
+            title="Minimizar"
           >
-            <X size={14} className="text-txt3" />
+            <Minus size={14} className="text-txt3" />
           </button>
+          {/* Cerrar overlay de popup */}
+          {metricPopup && (
+            <button className="w-8 h-8 rounded-lg bg-surface2 flex items-center justify-center border-none cursor-pointer"
+              onClick={() => setMetricPopup(null)}
+            >
+              <X size={14} className="text-txt3" />
+            </button>
+          )}
         </div>
 
         {/* Session name */}
@@ -168,7 +184,7 @@ export default function WorkoutModal({ session, hasWearable, onClose }) {
           </div>
         </div>
 
-        <button className="btn btn-surface" onClick={handleClose}>
+        <button className="btn btn-surface" onClick={handleFinish}>
           Finalizar entrenamiento
         </button>
       </motion.div>

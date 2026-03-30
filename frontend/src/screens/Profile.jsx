@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Target, CalendarDays, Bell, CreditCard, Link2, ChevronRight, Shield, LogOut } from 'lucide-react';
+import { Target, CalendarDays, Bell, CreditCard, Link2, ChevronRight, Shield, LogOut, Watch, Activity, BarChart2, Heart } from 'lucide-react';
 import { api, supabase } from '../api/client.js';
 
 const PLATFORM_LABELS = { apple_health: 'Apple Watch', garmin: 'Garmin', google_fit: 'Google Fit', fitbit: 'Fitbit' };
-const PLATFORM_ICONS  = { apple_health: '⌚', garmin: '🏃', google_fit: '📊', fitbit: '💚' };
+const PLATFORM_ICONS  = { apple_health: Watch, garmin: Activity, google_fit: BarChart2, fitbit: Heart };
 
 export default function Profile({ onNavigate, isTrainer }) {
   const [profile, setProfile] = useState(null);
@@ -23,7 +23,13 @@ export default function Profile({ onNavigate, isTrainer }) {
     setProfile(await api.get('/profile'));
   }
 
-  if (loading) return <div className="p-10 text-txt3 text-sm">Cargando...</div>;
+  if (loading) return (
+    <div className="p-5 pt-2">
+      <div className="skeleton h-52 rounded-2xl mb-2.5" />
+      <div className="skeleton h-44 rounded-2xl mb-2.5" />
+      <div className="skeleton h-52 rounded-2xl" />
+    </div>
+  );
   if (!profile) return null;
 
   const planLabels = { free: 'Free', pro: 'Plan PRO', elite: 'Plan Elite' };
@@ -83,10 +89,12 @@ export default function Profile({ onNavigate, isTrainer }) {
           <div className="px-5 pt-4 pb-2">
             <span className="text-[10px] text-txt3 uppercase tracking-wider font-semibold">Wearables</span>
           </div>
-          {wearableList.map(w => (
-            <div key={w.platform} className="flex items-center gap-3.5 px-5 py-3.5 border-b border-border last:border-b-0">
-              <span className="w-10 h-10 rounded-xl bg-surface2 flex items-center justify-center text-lg">
-                {PLATFORM_ICONS[w.platform]}
+          {wearableList.map(w => {
+            const WearIcon = PLATFORM_ICONS[w.platform];
+            return (
+            <div key={w.platform} className="flex items-center gap-3.5 px-5 py-3.5 border-b border-border last:border-b-0 cursor-pointer hover:bg-surface2/50 transition-colors">
+              <span className="w-10 h-10 rounded-xl bg-surface2 flex items-center justify-center">
+                <WearIcon size={18} className="text-txt2" />
               </span>
               <div className="flex-1">
                 <div className="text-sm font-medium">{w.device_name}</div>
@@ -96,7 +104,7 @@ export default function Profile({ onNavigate, isTrainer }) {
               </div>
               <button className={`toggle${w.connected ? ' on' : ''}`} onClick={() => toggleWearable(w)} />
             </div>
-          ))}
+          ); })}
         </div>
       </div>
 

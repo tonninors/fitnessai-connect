@@ -8,8 +8,9 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 router.get('/', requireAuth, async (req, res) => {
   const userId = req.user.id;
   const today  = new Date().toISOString().split('T')[0];
+  try {
 
-  const [profileRes, sessionRes, insightRes, metricsRes] = await Promise.all([
+  const [profileRes, sessionRes, insightRes, metricsRes, nextSessionRes] = await Promise.all([
     supabase.from('profiles')
       .select('full_name, current_streak, subscription_plan, trainer_id, trainer_profiles(full_name, rating, active_clients, specialties)')
       .eq('id', userId)
@@ -36,6 +37,16 @@ router.get('/', requireAuth, async (req, res) => {
       .eq('user_id', userId)
       .eq('metric_date', today)
       .maybeSingle(),
+
+    supabase.from('workout_sessions')
+      .select('id, name, scheduled_date, estimated_duration, rpe_target, focus_areas, workout_plans!inner(status)')
+      .eq('user_id', userId)
+      .eq('workout_plans.status', 'active')
+      .neq('status', 'completed')
+      .neq('status', 'skipped')
+      .order('scheduled_date', { ascending: true })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   const hour    = new Date().getHours();
@@ -55,8 +66,9 @@ router.get('/', requireAuth, async (req, res) => {
   res.json({
     greeting,
     profile:      profileRes.data,
-    today_session: sessionRes.data,
-    ai_insight:    insightRes.data?.content ?? null,
+    today_session:  sessionRes.data,
+    next_session:   sessionRes.data ? null : (nextSessionRes.data ?? null),
+    ai_insight:     insightRes.data?.content ?? null,
     activity_rings: {
       movement: Math.min(100, Math.round(activeMinutes / 30 * 100)),  // objetivo: 30 min
       exercise: Math.min(100, Math.round(activeMinutes / 20 * 100)),  // objetivo: 20 min
@@ -64,6 +76,10 @@ router.get('/', requireAuth, async (req, res) => {
     },
     hrv: metricsRes.data?.hrv_score ?? null,
   });
+  } catch (err) {
+    console.error('[home] error:', err);
+    res.status(500).json({ error: 'Error al cargar el dashboard' });
+  }
 });
 
 export default router;

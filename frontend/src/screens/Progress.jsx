@@ -28,7 +28,22 @@ export default function Progress() {
     api.get(`/progress/chart?period=${period}`).then(setChart).catch(console.error);
   }, [period]);
 
-  if (loading) return <div className="p-10 text-txt3 text-sm">Cargando...</div>;
+  if (loading) return (
+    <div className="p-5 pt-2">
+      <div className="mb-5">
+        <div className="skeleton h-2.5 w-24 mb-2" />
+        <div className="skeleton h-9 w-36" />
+      </div>
+      <div className="skeleton h-24 rounded-2xl mb-2.5" />
+      <div className="grid grid-cols-2 gap-2.5 mb-2.5">
+        <div className="skeleton h-28 rounded-2xl" />
+        <div className="skeleton h-28 rounded-2xl" />
+        <div className="skeleton h-28 rounded-2xl" />
+        <div className="skeleton h-28 rounded-2xl" />
+      </div>
+      <div className="skeleton h-48 rounded-2xl" />
+    </div>
+  );
   if (!stats)  return null;
 
   const gridStats = [
@@ -48,16 +63,18 @@ export default function Progress() {
       {/* Streak card — fondo naranja sólido */}
       <div className="section">
         <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.1 }}
-          className="bg-accent rounded-2xl p-5 flex items-center justify-between"
+          className="rounded-2xl p-5 flex items-center justify-between relative overflow-hidden"
+          style={{ background: 'linear-gradient(135deg, #FF5733 0%, #D94522 55%, #B83518 100%)' }}
         >
-          <div className="flex items-center gap-3.5">
-            <Flame size={32} className="text-white" />
+          <div className="absolute inset-0 opacity-25" style={{ background: 'radial-gradient(ellipse at 85% 25%, rgba(255,255,255,0.45) 0%, transparent 65%)' }} />
+          <div className="flex items-center gap-3.5 relative">
+            <Flame size={32} className="text-white" style={{ filter: 'drop-shadow(0 0 10px rgba(255,200,80,0.7))' }} />
             <div>
               <div className="font-metric text-4xl font-bold text-white leading-none">{stats.streak}</div>
               <div className="text-white/70 text-xs mt-1">Días de racha</div>
             </div>
           </div>
-          <div className="text-right">
+          <div className="text-right relative">
             <div className="text-white/70 text-xs">Nivel {stats.level}</div>
             <div className="text-white font-semibold text-sm">{stats.level_name}</div>
           </div>

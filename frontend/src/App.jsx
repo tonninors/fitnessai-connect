@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Home as HomeIcon, Dumbbell, TrendingUp, MessageCircle, User } from 'lucide-react';
+import { Home as HomeIcon, Dumbbell, TrendingUp, MessageCircle, User, ChevronUp } from 'lucide-react';
 import { supabase, api } from './api/client.js';
 import Login          from './screens/Login.jsx';
 import Onboarding     from './screens/Onboarding.jsx';
@@ -35,7 +35,8 @@ export default function App() {
   const [profileLoad,   setProfileLoad]   = useState(false);
   const [isTrainer,     setIsTrainer]     = useState(false);
   const [activeScreen,  setActiveScreen]  = useState('home');
-  const [activeSession, setActiveSession] = useState(null);
+  const [activeSession,  setActiveSession]  = useState(null);
+  const [modalVisible,   setModalVisible]   = useState(false);
   const [clock,         setClock]         = useState(getTime());
 
   useEffect(() => {
@@ -132,7 +133,7 @@ export default function App() {
                       <motion.div key={id} className="screen" style={{ opacity: 1, pointerEvents: 'all' }}
                         variants={pageVariants} initial="initial" animate="animate" exit="exit"
                       >
-                        <Screen onStartWorkout={setActiveSession} onNavigate={setActiveScreen} isTrainer={isTrainer} />
+                        <Screen onStartWorkout={s => { setActiveSession(s); setModalVisible(true); }} onNavigate={setActiveScreen} isTrainer={isTrainer} />
                       </motion.div>
                     );
                   })}
@@ -149,7 +150,7 @@ export default function App() {
                         >
                           {isActive && (
                             <motion.div layoutId="nav-indicator"
-                              className="absolute -top-[1px] left-1/2 -translate-x-1/2 w-8 h-[3px] rounded-full bg-accent"
+                              className="absolute -top-[6px] left-1/2 -translate-x-1/2 w-8 h-[3px] rounded-full bg-accent"
                               transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                             />
                           )}
@@ -165,12 +166,34 @@ export default function App() {
                   </nav>
                 )}
 
+                {/* Mini workout bar (modal minimizado) */}
+                {activeSession && !modalVisible && (
+                  <div
+                    className="absolute bottom-[80px] left-0 right-0 z-[70] px-4 pb-2"
+                    onClick={() => setModalVisible(true)}
+                  >
+                    <div className="flex items-center gap-3 bg-surface border border-border rounded-2xl px-4 py-3 cursor-pointer"
+                      style={{ boxShadow: '0 -2px 20px rgba(255,87,51,0.15)' }}
+                    >
+                      <div className="live-badge shrink-0">
+                        <div className="live-dot" />
+                        En vivo
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold truncate">{activeSession.name}</div>
+                      </div>
+                      <ChevronUp size={16} className="text-accent shrink-0" />
+                    </div>
+                  </div>
+                )}
+
                 {/* Workout modal */}
-                {activeSession && (
+                {activeSession && modalVisible && (
                   <WorkoutModal
                     session={activeSession}
                     hasWearable={profile?.wearables?.some(w => w.connected)}
-                    onClose={() => setActiveSession(null)}
+                    onClose={() => { setActiveSession(null); setModalVisible(false); }}
+                    onMinimize={() => setModalVisible(false)}
                   />
                 )}
               </>

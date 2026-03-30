@@ -151,8 +151,9 @@ Responde SOLO con JSON válido, sin texto extra, sin markdown:
 
   if (planErr) return res.status(400).json({ error: planErr.message });
 
-  for (const session of parsed.sessions || []) {
-    const scheduledDate = new Date();
+  const today = new Date();
+  await Promise.all((parsed.sessions || []).map(async (session) => {
+    const scheduledDate = new Date(today);
     scheduledDate.setDate(scheduledDate.getDate() + (session.day_order - 1) * 2);
 
     const { data: savedSession } = await supabase
@@ -173,7 +174,7 @@ Responde SOLO con JSON válido, sin texto extra, sin markdown:
       .select()
       .single();
 
-    if (savedSession && session.exercises) {
+    if (savedSession && session.exercises?.length) {
       await supabase.from('session_exercises').insert(
         session.exercises.map((ex, idx) => ({
           session_id:    savedSession.id,
@@ -186,7 +187,7 @@ Responde SOLO con JSON válido, sin texto extra, sin markdown:
         }))
       );
     }
-  }
+  }));
 
   res.json({ plan_id: plan.id, name: plan.name, sessions_created: parsed.sessions?.length || 0 });
 });

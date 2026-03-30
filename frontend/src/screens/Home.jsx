@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Play, Check, Sparkles, ChevronRight } from 'lucide-react';
+import { Play, Check, Sparkles, ChevronRight, Calendar } from 'lucide-react';
 import { api } from '../api/client.js';
 
 export default function Home({ onStartWorkout, onNavigate }) {
@@ -11,10 +11,21 @@ export default function Home({ onStartWorkout, onNavigate }) {
     api.get('/home').then(setData).catch(console.error).finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="p-10 text-txt3 text-sm">Cargando...</div>;
+  if (loading) return (
+    <div className="p-5 pt-2">
+      <div className="mb-5">
+        <div className="skeleton h-2.5 w-20 mb-2.5" />
+        <div className="skeleton h-9 w-40 mb-3" />
+        <div className="skeleton h-[3px] w-10" />
+      </div>
+      <div className="skeleton h-48 rounded-2xl mb-2.5" />
+      <div className="skeleton h-36 rounded-2xl mb-2.5" />
+      <div className="skeleton h-14 rounded-2xl" />
+    </div>
+  );
   if (!data)   return null;
 
-  const { greeting, profile, today_session, ai_insight, activity_rings, hrv } = data;
+  const { greeting, profile, today_session, next_session, ai_insight, activity_rings, hrv } = data;
   const firstName = profile?.full_name?.split(' ')[0] ?? 'Usuario';
   const rings = [
     { label: 'Movimiento', pct: activity_rings?.movement ?? 0, color: '#FF5733' },
@@ -26,8 +37,9 @@ export default function Home({ onStartWorkout, onNavigate }) {
     <div>
       {/* Greeting */}
       <div className="section pb-0">
-        <p className="text-xs text-txt3 uppercase tracking-wider mb-1">{greeting}</p>
-        <h1 className="text-[32px] font-extrabold tracking-tight leading-none">{firstName}</h1>
+        <p className="text-[11px] text-txt3 uppercase tracking-widest font-semibold mb-2">{greeting}</p>
+        <h1 className="text-[34px] font-extrabold tracking-tighter leading-none mb-3">{firstName}</h1>
+        <div className="w-10 h-[3px] bg-accent rounded-full" />
       </div>
 
       {/* Today's workout */}
@@ -58,9 +70,26 @@ export default function Home({ onStartWorkout, onNavigate }) {
               }
             </button>
           </motion.div>
+        ) : next_session ? (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+            className="card border-l-[3px] border-l-accent cursor-pointer hover:border-accent/40 transition-colors"
+            onClick={() => onNavigate('plans')}
+          >
+            <div className="flex items-center gap-1.5 text-[10px] text-txt3 font-semibold uppercase tracking-wider mb-3">
+              <Calendar size={12} /> Próximo entrenamiento
+            </div>
+            <h2 className="text-xl font-bold mb-1">{next_session.name}</h2>
+            <p className="text-xs text-txt3 mb-4">
+              {new Date(next_session.scheduled_date + 'T00:00:00').toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'short' })}
+              {next_session.estimated_duration ? ` · ${next_session.estimated_duration} min` : ''}
+            </p>
+            <button className="btn btn-surface btn-sm" onClick={() => onNavigate('plans')}>
+              <ChevronRight size={14} /> Ver plan completo
+            </button>
+          </motion.div>
         ) : (
           <div className="card flex items-center justify-between gap-4">
-            <p className="text-sm text-txt3">Sin entrenamiento hoy</p>
+            <p className="text-sm text-txt3">Sin plan activo</p>
             <button className="btn btn-primary btn-sm" onClick={() => onNavigate('plans')}>
               <Sparkles size={14} /> Generar plan
             </button>
@@ -77,7 +106,6 @@ export default function Home({ onStartWorkout, onNavigate }) {
               <div key={label} className="flex flex-col items-center gap-2.5">
                 <Ring pct={pct} color={color} />
                 <span className="text-[10px] text-txt3 uppercase tracking-wide">{label}</span>
-                <span className="font-metric text-lg font-bold text-txt">{pct}%</span>
               </div>
             ))}
           </div>
@@ -127,19 +155,24 @@ function Stat({ val, label }) {
 }
 
 function Ring({ pct, color }) {
-  const r = 28, circ = 2 * Math.PI * r;
+  const r = 30, circ = 2 * Math.PI * r;
   const offset = circ - (pct / 100) * circ;
   return (
-    <svg width="68" height="68" style={{ transform: 'rotate(-90deg)' }}>
-      <circle cx="34" cy="34" r={r} fill="none" stroke="#222" strokeWidth="5" />
-      <motion.circle
-        cx="34" cy="34" r={r}
-        fill="none" stroke={color} strokeWidth="5" strokeLinecap="round"
-        strokeDasharray={circ}
-        initial={{ strokeDashoffset: circ }}
-        animate={{ strokeDashoffset: offset }}
-        transition={{ duration: 1.2, ease: 'easeOut', delay: 0.3 }}
-      />
-    </svg>
+    <div className="relative" style={{ width: 76, height: 76 }}>
+      <svg width="76" height="76" style={{ transform: 'rotate(-90deg)', position: 'absolute', inset: 0 }}>
+        <circle cx="38" cy="38" r={r} fill="none" stroke="#222" strokeWidth="7" />
+        <motion.circle
+          cx="38" cy="38" r={r}
+          fill="none" stroke={color} strokeWidth="7" strokeLinecap="round"
+          strokeDasharray={circ}
+          initial={{ strokeDashoffset: circ }}
+          animate={{ strokeDashoffset: offset }}
+          transition={{ duration: 1.2, ease: 'easeOut', delay: 0.3 }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <span className="font-metric text-[15px] font-bold leading-none" style={{ color }}>{pct}%</span>
+      </div>
+    </div>
   );
 }

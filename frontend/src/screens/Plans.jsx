@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Sparkles, Play, Check, Calendar } from 'lucide-react';
+import { Sparkles, Play, Check, Calendar, Trophy } from 'lucide-react';
 import { api } from '../api/client.js';
 
 export default function Plans({ onStartWorkout }) {
@@ -8,6 +8,7 @@ export default function Plans({ onStartWorkout }) {
   const [upcoming,  setUpcoming]  = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [genError,   setGenError]   = useState(null);
   const [exercises, setExercises] = useState({});
 
   useEffect(() => {
@@ -20,17 +21,37 @@ export default function Plans({ onStartWorkout }) {
     }).catch(console.error).finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="p-10 text-txt3 text-sm">Cargando...</div>;
+  if (loading) return (
+    <div className="p-5 pt-2">
+      <div className="skeleton h-7 w-32 mb-5" />
+      <div className="skeleton h-52 rounded-2xl mb-2.5" />
+      <div className="skeleton h-36 rounded-2xl mb-2.5" />
+      <div className="skeleton h-14 rounded-2xl mb-2" />
+      <div className="skeleton h-14 rounded-2xl mb-2" />
+      <div className="skeleton h-14 rounded-2xl" />
+    </div>
+  );
 
   const today = new Date().toISOString().split('T')[0];
   const todaySession = plan?.workout_sessions?.find(s => s.scheduled_date === today && s.status !== 'skipped');
-  const isCompleted  = todaySession?.status === 'completed';
-  const nextSession  = plan?.workout_sessions?.find(s => s.scheduled_date > today && s.status === 'scheduled');
-  const exList = todaySession?.session_exercises ?? [];
-  const done   = isCompleted ? new Set(exList.map(e => e.id)) : (exercises[todaySession?.id] ?? new Set());
+
+  // Si no hay sesión hoy, usar la primera sesión pendiente (por fecha, pasada o futura)
+  const activeSession = todaySession ?? plan?.workout_sessions
+    ?.filter(s => !['completed', 'skipped'].includes(s.status))
+    ?.sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date))
+    ?.[0];
+
+  const allDone      = plan && !activeSession;
+  const isCompleted  = activeSession?.status === 'completed';
+  const nextSession  = plan?.workout_sessions
+    ?.filter(s => !['completed', 'skipped'].includes(s.status) && s.id !== activeSession?.id)
+    ?.sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date))[0];
+  const exList = activeSession?.session_exercises ?? [];
+  const done   = isCompleted ? new Set(exList.map(e => e.id)) : (exercises[activeSession?.id] ?? new Set());
 
   async function generatePlan() {
     setGenerating(true);
+    setGenError(null);
     try {
       await api.post('/ai/generate-plan', {
         goals: 'fitness general', days_per_week: 3,
@@ -39,7 +60,7 @@ export default function Plans({ onStartWorkout }) {
       const [p, u] = await Promise.all([api.get('/workouts/plan'), api.get('/workouts/upcoming')]);
       setPlan(p); setUpcoming(u || []);
     } catch (e) {
-      alert(e.message || 'Error al generar el plan');
+      setGenError(e.message || 'Error al generar el plan');
     } finally { setGenerating(false); }
   }
 
@@ -47,8 +68,8 @@ export default function Plans({ onStartWorkout }) {
     const newDone = new Set(done);
     const isNowDone = !newDone.has(ex.id);
     isNowDone ? newDone.add(ex.id) : newDone.delete(ex.id);
-    setExercises(prev => ({ ...prev, [todaySession.id]: newDone }));
-    await api.patch(`/workouts/sessions/${todaySession.id}/exercises/${ex.id}/toggle`, { completed: isNowDone }).catch(console.error);
+    setExercises(prev => ({ ...prev, [activeSession.id]: newDone }));
+    await api.patch(`/workouts/sessions/${activeSession.id}/exercises/${ex.id}/toggle`, { completed: isNowDone }).catch(console.error);
   }
 
   const dayLabels = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
@@ -59,7 +80,21 @@ export default function Plans({ onStartWorkout }) {
         <h1 className="text-2xl font-bold tracking-tight">Mis Planes</h1>
       </div>
 
-      {!plan ? (
+      {allDone ? (
+        <div className="section">
+          <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }}
+            className="card text-center py-10"
+          >
+            <Trophy size={36} className="text-accent mx-auto mb-3" />
+            <h2 className="text-lg font-bold mb-1">¡Plan completado!</h2>
+            <p className="text-txt3 mb-6 text-sm">Terminaste las {plan.workout_sessions?.length} sesiones del plan. ¿Listo para el siguiente?</p>
+            <button className="btn btn-primary" onClick={generatePlan} disabled={generating}>
+              {generating ? 'Generando...' : <><Sparkles size={14} /> Generar nuevo plan</>}
+            </button>
+            {genError && <p className="text-[12px] text-red-400 mt-4 leading-snug">{genError}</p>}
+          </motion.div>
+        </div>
+      ) : !plan ? (
         <div className="section">
           <div className="card text-center py-10">
             <Sparkles size={32} className="text-accent mx-auto mb-4" />
@@ -67,6 +102,9 @@ export default function Plans({ onStartWorkout }) {
             <button className="btn btn-primary" onClick={generatePlan} disabled={generating}>
               {generating ? 'Generando...' : 'Generar plan con IA'}
             </button>
+            {genError && (
+              <p className="text-[12px] text-red-400 mt-4 leading-snug">{genError}</p>
+            )}
           </div>
         </div>
       ) : (
@@ -75,26 +113,33 @@ export default function Plans({ onStartWorkout }) {
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
               className="card border-l-[3px] border-l-accent"
             >
-              <span className="inline-block bg-accent/15 text-accent text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md mb-3">
-                Semana {plan.current_week} de {plan.total_weeks}
-              </span>
-              <h2 className="text-xl font-bold mb-1">{todaySession?.name ?? plan.name}</h2>
+              <div className="flex items-center gap-2 mb-3 flex-wrap">
+                <span className="inline-block bg-accent/15 text-accent text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md">
+                  Semana {plan.current_week} de {plan.total_weeks}
+                </span>
+                {activeSession && activeSession.scheduled_date !== today && (
+                  <span className="inline-block bg-surface2 text-txt3 text-[10px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-md">
+                    {new Date(activeSession.scheduled_date + 'T00:00:00').toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' })}
+                  </span>
+                )}
+              </div>
+              <h2 className="text-xl font-bold mb-1">{activeSession?.name ?? plan.name}</h2>
               <p className="text-xs text-txt3 mb-4">
-                {(todaySession?.focus_areas ?? plan.focus_areas)?.join(' · ')}
+                {(activeSession?.focus_areas ?? plan.focus_areas)?.join(' · ')}
               </p>
               <div className="flex gap-1.5 flex-wrap mb-5">
-                {todaySession?.estimated_duration && (
-                  <span className="pill bg-accent-dim text-accent">{todaySession.estimated_duration} min</span>
+                {activeSession?.estimated_duration && (
+                  <span className="pill bg-accent-dim text-accent">{activeSession.estimated_duration} min</span>
                 )}
                 {exList.length > 0 && (
                   <span className="pill bg-blue-dim text-blue">{exList.length} ejercicios</span>
                 )}
-                {todaySession?.rpe_target && (
-                  <span className="pill bg-[#2a1f00] text-[#fb923c]">RPE {todaySession.rpe_target}</span>
+                {activeSession?.rpe_target && (
+                  <span className="pill bg-[#2a1f00] text-[#fb923c]">RPE {activeSession.rpe_target}</span>
                 )}
               </div>
-              {todaySession && !isCompleted && (
-                <button className="btn btn-primary" onClick={() => onStartWorkout(todaySession)}>
+              {activeSession && !isCompleted && (
+                <button className="btn btn-primary" onClick={() => onStartWorkout(activeSession)}>
                   <Play size={16} fill="white" /> Iniciar ahora
                 </button>
               )}
@@ -141,7 +186,7 @@ export default function Plans({ onStartWorkout }) {
           {upcoming.slice(0, 3).map(s => {
             const d = new Date(s.scheduled_date);
             return (
-              <div key={s.id} className="card flex items-center gap-3.5 mb-2 !py-3.5">
+              <div key={s.id} className="card flex items-center gap-3.5 mb-2 !py-3.5 cursor-pointer hover:border-accent/40 transition-colors">
                 <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
                   <Calendar size={16} className="text-accent" />
                 </div>
