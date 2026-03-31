@@ -32,6 +32,8 @@ No test runner or linter is configured in this project.
 
 Auth flow: `supabase.auth.onAuthStateChange()` → fetch profile → detect trainer role (`isTrainer`) → gate app render until profile loads.
 
+Trainer role: when `isTrainer=true`, `DashboardCoach.jsx` is accessible as `activeScreen === 'coach'`. It is not in the main nav array — navigation to it must be added conditionally. Regular users never see this screen.
+
 ### API layer (`frontend/src/api/client.js`)
 Every HTTP call goes through this wrapper. It fetches a fresh Supabase session token on **each request** (not cached) and injects it as `Authorization: Bearer <token>`. No request-level caching.
 
@@ -42,9 +44,11 @@ Uses `service_role` key to call `supabase.auth.getUser(token)`. Attaches `req.us
 Each route file (`home.js`, `workouts.js`, etc.) creates its own Supabase client with `service_role`. There is no shared singleton.
 
 ### AI integration (`backend/routes/ai.js`)
-Two endpoints:
+Model: **Groq LLaMA 4 Scout** (id: `meta-llama/llama-4-scout-17b-16e-instruct`). Two endpoints:
 - `POST /ai/insight` — type-based prompts (recovery, workout_ready, etc.), auto-retry on 429 with exponential backoff (2s → 5s)
 - `POST /ai/generate-plan` — generates a 4-week plan as JSON; parses with regex (`text.match(/\{[\s\S]*\}/)`); archives previous active plan before creating new one. Session+exercise inserts run in parallel with `Promise.all`.
+
+Currently only generates week 1 — weeks 2–12 are a P1 pending feature (see `COMPONENTES-PENDIENTES.md`).
 
 After generating an insight, the DB insert happens **fire-and-forget** (async, after response is sent).
 
@@ -53,6 +57,14 @@ After generating an insight, the DB insert happens **fire-and-forget** (async, a
 
 ### Home dashboard (`backend/routes/home.js`)
 Returns `today_session` (scheduled for today, not skipped) OR `next_session` (first pending session from active plan, if no today session). Uses `workout_plans!inner(status)` join to filter by active plans only. All queries run in a single `Promise.all`.
+
+### Progress (`backend/routes/progress.js`)
+- `GET /progress/stats` — monthly stats (sessions completed, volume kg, avg RPE, active days)
+- `GET /progress/chart` — weekly volume data for Recharts; supports `period` param (`4w`/`3m`/`1y`)
+- `POST /progress/metrics` + `GET /progress/metrics` — body metrics (weight, HRV, sleep, body fat, etc.)
+
+### Rate limiting (`backend/server.js`)
+`express-rate-limit`: 15-min window, max **100 req** in production / **1000 req** in development. Applied globally before all routes.
 
 ---
 

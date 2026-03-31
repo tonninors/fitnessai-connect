@@ -227,6 +227,13 @@ body {
 }
 .input-group { margin-bottom: 14px; }
 
+/* Suprimir íconos nativos del navegador en inputs */
+input::-ms-reveal,
+input::-ms-clear { display: none; }
+input::-webkit-credentials-auto-fill-button,
+input::-webkit-contacts-auto-fill-button { display: none !important; visibility: hidden; }
+input[type="password"]::-webkit-textfield-decoration-container { display: none; }
+
 /* ── SKELETON ── */
 .skeleton {
   background: linear-gradient(90deg, var(--color-surface2) 0%, #2a2a2a 50%, var(--color-surface2) 100%);

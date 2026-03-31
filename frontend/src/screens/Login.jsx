@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Dumbbell, Mail, Lock, User } from 'lucide-react';
+import { Dumbbell } from 'lucide-react';
 import { supabase } from '../api/client.js';
 
 export default function Login() {
@@ -57,37 +57,30 @@ export default function Login() {
           {mode === 'register' && (
             <div className="input-group">
               <label className="text-xs text-txt3 font-medium mb-1.5 block">Nombre completo</label>
-              <div className="relative">
-                <User size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-txt3" />
-                <input
-                  className="w-full bg-surface2 border border-border rounded-xl pl-10 pr-4 py-3 text-sm text-txt outline-none focus:border-accent transition-colors"
-                  type="text" value={name} placeholder="Carlos Mendoza"
-                  onChange={e => setName(e.target.value)} required
-                />
-              </div>
+              <input
+                className="w-full min-w-0 bg-surface2 border border-border rounded-xl px-4 py-3 text-sm text-txt outline-none focus:border-accent transition-colors"
+                type="text" value={name} placeholder="Carlos Mendoza"
+                onChange={e => setName(e.target.value)} required
+              />
             </div>
           )}
           <div className="input-group">
             <label className="text-xs text-txt3 font-medium mb-1.5 block">Correo electrónico</label>
-            <div className="relative">
-              <Mail size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-txt3" />
-              <input
-                className="w-full bg-surface2 border border-border rounded-xl pl-10 pr-4 py-3 text-sm text-txt outline-none focus:border-accent transition-colors"
-                type="email" value={email} placeholder="tu@correo.com"
-                onChange={e => setEmail(e.target.value)} required
-              />
-            </div>
+            <input
+              className="w-full min-w-0 bg-surface2 border border-border rounded-xl px-4 py-3 text-sm text-txt outline-none focus:border-accent transition-colors"
+              type="email" value={email} placeholder="tu@correo.com"
+              autoComplete="email"
+              onChange={e => setEmail(e.target.value)} required
+            />
           </div>
           <div className="input-group">
             <label className="text-xs text-txt3 font-medium mb-1.5 block">Contraseña</label>
-            <div className="relative">
-              <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-txt3" />
-              <input
-                className="w-full bg-surface2 border border-border rounded-xl pl-10 pr-4 py-3 text-sm text-txt outline-none focus:border-accent transition-colors"
-                type="password" value={password} placeholder="••••••••"
-                onChange={e => setPassword(e.target.value)} required minLength={6}
-              />
-            </div>
+            <input
+              className="w-full min-w-0 bg-surface2 border border-border rounded-xl px-4 py-3 text-sm text-txt outline-none focus:border-accent transition-colors"
+              type="password" value={password} placeholder="••••••••"
+              autoComplete="current-password"
+              onChange={e => setPassword(e.target.value)} required minLength={6}
+            />
           </div>
 
           {error   && <p className="text-red-400 text-xs text-center py-2">{error}</p>}
