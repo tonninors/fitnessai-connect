@@ -11,6 +11,7 @@ import Profile        from './screens/Profile.jsx';
 import Chat           from './screens/Chat.jsx';
 import DashboardCoach from './screens/DashboardCoach.jsx';
 import WorkoutModal   from './components/WorkoutModal.jsx';
+import ResetPassword  from './screens/ResetPassword.jsx';
 
 const NAV = [
   { id: 'home',     label: 'Inicio',   icon: HomeIcon     },
@@ -30,6 +31,7 @@ const pageVariants = {
 
 export default function App() {
   const [session,       setSession]       = useState(null);
+  const [authEvent,     setAuthEvent]     = useState(null);
   const [loading,       setLoading]       = useState(true);
   const [profile,       setProfile]       = useState(null);
   const [profileLoad,   setProfileLoad]   = useState(false);
@@ -44,8 +46,9 @@ export default function App() {
       setSession(session);
       setLoading(false);
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((e, s) => {
       setSession(s);
+      setAuthEvent(e);
       if (!s) { setProfile(null); setIsTrainer(false); }
     });
     return () => subscription.unsubscribe();
@@ -71,6 +74,7 @@ export default function App() {
 
   if (loading || profileLoad) return null;
   if (!session) return <Login />;
+  if (authEvent === 'PASSWORD_RECOVERY') return <ResetPassword onDone={() => setAuthEvent(null)} />;
   if (!profile) return null;
 
   const showCoach = isTrainer && activeScreen === 'coach';
@@ -187,10 +191,11 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Workout modal */}
-                {activeSession && modalVisible && (
+                {/* Workout modal — siempre montado cuando hay sesión activa para que el timer no se reinicie */}
+                {activeSession && (
                   <WorkoutModal
                     session={activeSession}
+                    visible={modalVisible}
                     hasWearable={profile?.wearables?.some(w => w.connected)}
                     onClose={() => { setActiveSession(null); setModalVisible(false); }}
                     onMinimize={() => setModalVisible(false)}

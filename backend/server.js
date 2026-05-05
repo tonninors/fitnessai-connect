@@ -8,6 +8,7 @@ import workoutsRouter from './routes/workouts.js';
 import progressRouter from './routes/progress.js';
 import profileRouter  from './routes/profile.js';
 import aiRouter       from './routes/ai.js';
+import authRouter     from './routes/auth.js';
 
 dotenv.config();
 
@@ -30,6 +31,7 @@ app.use('/api/workouts',  workoutsRouter);
 app.use('/api/progress',  progressRouter);
 app.use('/api/profile',   profileRouter);
 app.use('/api/ai',        aiRouter);
+app.use('/api/auth',      authRouter);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok', ts: Date.now() }));
 

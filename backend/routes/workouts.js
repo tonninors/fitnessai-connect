@@ -32,7 +32,7 @@ router.get('/upcoming', requireAuth, async (req, res) => {
   const today = new Date().toISOString().split('T')[0];
   const { data, error } = await supabase
     .from('workout_sessions')
-    .select('id, name, scheduled_date, estimated_duration, focus_areas, rpe_target, status')
+    .select('id, name, scheduled_date, estimated_duration, focus_areas, rpe_target, status, day_order')
     .eq('user_id', req.user.id)
     .gte('scheduled_date', today)
     .neq('status', 'completed')

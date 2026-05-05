@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Play, Check, Sparkles, ChevronRight, Calendar } from 'lucide-react';
+import { Play, Check, Sparkles, ChevronRight, Calendar, CheckCircle } from 'lucide-react';
 import { api } from '../api/client.js';
 
 export default function Home({ onStartWorkout, onNavigate }) {
@@ -25,7 +25,8 @@ export default function Home({ onStartWorkout, onNavigate }) {
   );
   if (!data)   return null;
 
-  const { greeting, profile, today_session, next_session, ai_insight, activity_rings, hrv } = data;
+  const { greeting, profile, today_session, next_session, ai_insight, activity_rings, hrv, week_sessions } = data;
+  const today     = new Date().toISOString().split('T')[0];
   const firstName = profile?.full_name?.split(' ')[0] ?? 'Usuario';
   const rings = [
     { label: 'Movimiento', pct: activity_rings?.movement ?? 0, color: '#FF5733' },
@@ -41,6 +42,13 @@ export default function Home({ onStartWorkout, onNavigate }) {
         <h1 className="text-[34px] font-extrabold tracking-tighter leading-none mb-3">{firstName}</h1>
         <div className="w-10 h-[3px] bg-accent rounded-full" />
       </div>
+
+      {/* Weekly strip */}
+      {week_sessions?.length > 0 && (
+        <div className="section pt-3 pb-0">
+          <WeekStrip sessions={week_sessions} today={today} />
+        </div>
+      )}
 
       {/* Today's workout */}
       <div className="section">
@@ -78,7 +86,7 @@ export default function Home({ onStartWorkout, onNavigate }) {
             <div className="flex items-center gap-1.5 text-[10px] text-txt3 font-semibold uppercase tracking-wider mb-3">
               <Calendar size={12} /> Próximo entrenamiento
             </div>
-            <h2 className="text-xl font-bold mb-1">{next_session.name}</h2>
+            <h2 className="text-xl font-bold mb-1">{next_session.day_order ? `Día ${next_session.day_order}` : next_session.name}</h2>
             <p className="text-xs text-txt3 mb-4">
               {new Date(next_session.scheduled_date + 'T00:00:00').toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'short' })}
               {next_session.estimated_duration ? ` · ${next_session.estimated_duration} min` : ''}
@@ -141,6 +149,63 @@ export default function Home({ onStartWorkout, onNavigate }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function WeekStrip({ sessions, today }) {
+  const DAY_LABELS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+
+  // Construir los 7 días de la semana (lunes → domingo)
+  const todayDate = new Date(today);
+  const dow       = todayDate.getDay(); // 0=Dom
+  const diffToMon = dow === 0 ? -6 : 1 - dow;
+  const monday    = new Date(todayDate);
+  monday.setDate(todayDate.getDate() + diffToMon);
+
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d    = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    const dateStr = d.toISOString().split('T')[0];
+    const session = sessions.find(s => s.scheduled_date === dateStr);
+    return { dateStr, label: DAY_LABELS[i], session };
+  });
+
+  return (
+    <div className="flex justify-between items-end px-1">
+      {days.map(({ dateStr, label, session }) => {
+        const isToday     = dateStr === today;
+        const isCompleted = session?.status === 'completed';
+        const isPast      = dateStr < today;
+        const hasSession  = !!session;
+
+        return (
+          <div key={dateStr} className="flex flex-col items-center gap-1.5">
+            <span className={`text-[10px] font-semibold uppercase ${isToday ? 'text-accent' : 'text-txt3'}`}>
+              {label}
+            </span>
+            <div className={`w-7 h-7 rounded-full flex items-center justify-center transition-all
+              ${isCompleted
+                ? 'bg-green/20 border border-green'
+                : isToday && hasSession
+                  ? 'border-2 border-accent'
+                  : hasSession && !isPast
+                    ? 'border border-border'
+                    : 'bg-transparent'
+              }`}
+            >
+              {isCompleted
+                ? <Check size={12} className="text-green" strokeWidth={2.5} />
+                : isToday && hasSession
+                  ? <div className="w-2 h-2 rounded-full bg-accent" />
+                  : hasSession
+                    ? <div className="w-1.5 h-1.5 rounded-full bg-border" />
+                    : <div className="w-1 h-1 rounded-full bg-surface2" />
+              }
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
