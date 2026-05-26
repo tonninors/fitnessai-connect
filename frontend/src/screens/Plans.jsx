@@ -175,50 +175,81 @@ export default function Plans({ onStartWorkout }) {
 
           {exList.length > 0 && (
             <div className="section pt-0">
-              <div className="card !p-0 overflow-hidden">
-                {exList.map((ex, i) => {
-                  const isDone    = done.has(ex.id);
-                  const isNext    = !isDone && !isCompleted && [...done].length === i;
-                  return (
-                    <div key={ex.id}
-                      className={`flex items-center gap-3.5 px-4 py-3.5 border-b border-border last:border-b-0 cursor-pointer transition-all
-                        ${isDone ? 'opacity-40' : ''}
-                        ${isNext ? 'bg-accent/5' : ''}
-                      `}
-                      onClick={() => !isCompleted && toggleExercise(ex)}
-                    >
-                      {/* Número / check */}
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold shrink-0 transition-colors
-                        ${isDone ? 'bg-accent text-white' : isNext ? 'bg-accent/20 text-accent' : 'bg-surface2 text-txt3'}`}
-                      >
-                        {isDone ? <Check size={14} /> : i + 1}
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <div className={`text-sm font-semibold leading-snug ${isDone ? 'line-through text-txt3' : 'text-txt'}`}>
-                          {ex.exercise_name}
-                        </div>
-                        <div className="flex items-center gap-2.5 mt-1 flex-wrap">
-                          <span className="flex items-center gap-1 text-[11px] text-txt3">
-                            <Dumbbell size={10} className="shrink-0" />
-                            {ex.sets} × {ex.reps ?? '?'} reps{ex.weight_kg ? ` · ${ex.weight_kg}kg` : ''}
-                          </span>
-                          {ex.rest_seconds && (
-                            <span className="flex items-center gap-1 text-[11px] text-txt3">
-                              <Timer size={10} className="shrink-0" />
-                              {ex.rest_seconds}s descanso
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {isNext && !isDone && (
-                        <span className="text-[10px] font-bold text-accent uppercase tracking-wider shrink-0">Siguiente</span>
-                      )}
+              {[
+                { type: 'warmup',   label: 'Calentamiento', color: 'text-green',  dot: 'bg-green'  },
+                { type: 'strength', label: 'Entrenamiento',  color: 'text-accent', dot: 'bg-accent' },
+                { type: 'cardio',   label: 'Cardio',         color: 'text-[#f97316]', dot: 'bg-[#f97316]' },
+                { type: 'cooldown', label: 'Estiramiento',   color: 'text-blue',   dot: 'bg-blue'   },
+              ].map(({ type, label, color, dot }) => {
+                const block = exList.filter(e => (e.exercise_type ?? 'strength') === type);
+                if (!block.length) return null;
+                return (
+                  <div key={type} className="mb-3">
+                    <div className={`flex items-center gap-2 px-1 mb-2`}>
+                      <div className={`w-2 h-2 rounded-full ${dot}`} />
+                      <span className={`text-[11px] font-bold uppercase tracking-wider ${color}`}>{label}</span>
                     </div>
-                  );
-                })}
-              </div>
+                    <div className="card !p-0 overflow-hidden">
+                      {block.map((ex) => {
+                        const globalIdx = exList.indexOf(ex);
+                        const isDone     = done.has(ex.id);
+                        const isNext     = !isDone && !isCompleted && [...done].length === globalIdx;
+                        const isTimed    = type === 'warmup' || type === 'cooldown' || type === 'cardio';
+                        const blockIdx   = block.indexOf(ex) + 1;
+                        return (
+                          <div key={ex.id}
+                            className={`flex items-center gap-3.5 px-4 py-3.5 border-b border-border last:border-b-0 cursor-pointer transition-all
+                              ${isDone ? 'opacity-40' : ''}
+                              ${isNext ? 'bg-accent/5' : ''}
+                            `}
+                            onClick={() => !isCompleted && toggleExercise(ex)}
+                          >
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold shrink-0 transition-colors
+                              ${isDone ? 'bg-accent text-white' : type === 'warmup' ? 'bg-green-dim text-green' : type === 'cooldown' ? 'bg-blue-dim text-blue' : type === 'cardio' ? 'bg-orange-500/15 text-[#f97316]' : isNext ? 'bg-accent/20 text-accent' : 'bg-surface2 text-txt3'}`}
+                            >
+                              {isDone ? <Check size={14} /> : blockIdx}
+                            </div>
+
+                            <div className="flex-1 min-w-0">
+                              <div className={`text-sm font-semibold leading-snug ${isDone ? 'line-through text-txt3' : 'text-txt'}`}>
+                                {ex.exercise_name}
+                              </div>
+                              <div className="flex items-center gap-2.5 mt-1 flex-wrap">
+                                {isTimed ? (
+                                  <span className="flex items-center gap-1 text-[11px] text-txt3">
+                                    <Timer size={10} className="shrink-0" />
+                                    {type === 'cardio'
+                                      ? `${Math.round(ex.duration_seconds / 60)} min`
+                                      : `${ex.duration_seconds}s`}
+                                  </span>
+                                ) : (
+                                  <>
+                                    <span className="flex items-center gap-1 text-[11px] text-txt3">
+                                      <Dumbbell size={10} className="shrink-0" />
+                                      {ex.sets} × {ex.reps ?? '?'} reps{ex.weight_kg ? ` · ${ex.weight_kg}kg` : ''}
+                                    </span>
+                                    {ex.rest_seconds && (
+                                      <span className="flex items-center gap-1 text-[11px] text-txt3">
+                                        <Timer size={10} className="shrink-0" />
+                                        {ex.rest_seconds}s descanso
+                                      </span>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            </div>
+
+                            {isNext && !isDone && (
+                              <span className="text-[10px] font-bold text-accent uppercase tracking-wider shrink-0">Siguiente</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+
 
               {allExercisesDone && !isCompleted && (
                 <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mt-3">
@@ -231,6 +262,19 @@ export default function Plans({ onStartWorkout }) {
             </div>
           )}
         </>
+      )}
+
+      {plan && (
+        <div className="px-5 pb-1">
+          <button
+            className="w-full text-xs text-txt3 py-2 bg-transparent border-none cursor-pointer hover:text-accent transition-colors"
+            onClick={generatePlan}
+            disabled={generating}
+          >
+            {generating ? 'Generando nuevo plan...' : '↻ Regenerar plan con IA'}
+          </button>
+          {genError && <p className="text-[12px] text-red-400 text-center pb-2">{genError}</p>}
+        </div>
       )}
 
       {upcoming.length > 0 && (

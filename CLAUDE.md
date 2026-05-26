@@ -34,6 +34,8 @@ Auth flow: `supabase.auth.onAuthStateChange()` → fetch profile → detect trai
 
 Trainer role: when `isTrainer=true`, `DashboardCoach.jsx` is accessible as `activeScreen === 'coach'`. It is not in the main nav array — navigation to it must be added conditionally. Regular users never see this screen.
 
+**No custom hooks or utils layer** — all logic is inline in screen components (`frontend/src/screens/`). There is no `hooks/` or `utils/` directory. Extract only when a pattern repeats across ≥3 screens.
+
 ### API layer (`frontend/src/api/client.js`)
 Every HTTP call goes through this wrapper. It fetches a fresh Supabase session token on **each request** (not cached) and injects it as `Authorization: Bearer <token>`. No request-level caching.
 
@@ -46,9 +48,11 @@ Each route file (`home.js`, `workouts.js`, etc.) creates its own Supabase client
 ### AI integration (`backend/routes/ai.js`)
 Model: **Groq LLaMA 4 Scout** (id: `meta-llama/llama-4-scout-17b-16e-instruct`). Two endpoints:
 - `POST /ai/insight` — type-based prompts (recovery, workout_ready, etc.), auto-retry on 429 with exponential backoff (2s → 5s)
-- `POST /ai/generate-plan` — generates a 4-week plan as JSON; parses with regex (`text.match(/\{[\s\S]*\}/)`); archives previous active plan before creating new one. Session+exercise inserts run in parallel with `Promise.all`.
+- `POST /ai/generate-plan` — generates a 4-week plan as JSON; parses with regex (`text.match(/\{[\s\S]*\}/)`); archives previous active plan before creating new one. Session+exercise inserts run in parallel with `Promise.all`. Accepts `cardio_minutes` param (0 = no cardio block).
 
-Currently only generates week 1 — weeks 2–12 are a P1 pending feature (see `COMPONENTES-PENDIENTES.md`).
+**Exercise structure generated:** 4 blocks per session — `warmup` (3 mobility exercises, `duration_seconds`, `sets:1`), `strength` (5-7 exercises, compound-first order), `cardio` (1 exercise, `duration_seconds`, skipped if `cardio_minutes=0`), `cooldown` (3 stretches, `duration_seconds`, `sets:1`). Rest times: heavy compounds (squat/deadlift/bench) → 180s, secondary compounds → 90-120s, isolations → 60s. Cardio intensity is periodized by goal (fat loss = moderate-intense, muscle gain = light).
+
+Currently only generates week 1 — weeks 2–12 are a P1 pending feature. See `COMPONENTES-PENDIENTES.md` for the full roadmap.
 
 After generating an insight, the DB insert happens **fire-and-forget** (async, after response is sent).
 
@@ -63,6 +67,9 @@ Returns `today_session` (scheduled for today, not skipped) OR `next_session` (fi
 - `GET /progress/chart` — weekly volume data for Recharts; supports `period` param (`4w`/`3m`/`1y`)
 - `POST /progress/metrics` + `GET /progress/metrics` — body metrics (weight, HRV, sleep, body fat, etc.)
 
+### Auth routes (`backend/routes/auth.js`)
+Handles email/password sign-up, sign-in, sign-out, and password recovery (OTP flow). Delegates to Supabase Auth — no custom JWT minting. Password reset sends an OTP via `supabase.auth.resetPasswordForEmail()`.
+
 ### Rate limiting (`backend/server.js`)
 `express-rate-limit`: 15-min window, max **100 req** in production / **1000 req** in development. Applied globally before all routes.
 
@@ -75,6 +82,15 @@ Returns `today_session` (scheduled for today, not skipped) OR `next_session` (fi
 - Modals use `.modal-overlay` + `.modal-sheet` (bottom sheet pattern)
 - Mobile-first: design for 390×844px (iPhone 14 Pro)
 - WorkoutModal has two visibility states in `App.jsx`: `activeSession` (session object or null) + `modalVisible` (boolean). Minimizing sets `modalVisible=false` but keeps `activeSession` alive — the timer persists. A mini bar renders above the bottom nav when `activeSession && !modalVisible`; tapping it restores the modal.
+
+**WorkoutModal exercise flow:**
+- Exercises are grouped into 4 ordered blocks: `warmup → strength → cardio → cooldown`. Only the current block's exercises are shown; a "Siguiente fase" button advances to the next block when all exercises in the current block are done.
+- Timer starts on first exercise interaction, not on modal open.
+- Tapping an exercise row marks it as *active* (in-progress). A focus card appears showing: image placeholder (ready for `ex.image_url`), exercise name, weight, reps, set progress bars, and a CTA button.
+- For strength exercises: each tap of "Serie lista" logs one set and starts the inter-set rest timer; the last set shows "Terminar ejercicio" and marks it complete.
+- For timed exercises (warmup/cooldown/cardio): single "Terminar" tap — no set loop.
+- `sets` fallback: `ex.sets ?? (exercise_type === 'strength' ? 3 : 1)` — never relies on a null sets field.
+- Global metrics (FC/KCAL/TIME) collapse to a compact inline strip while an exercise is active; they expand back to full cards when no exercise is active.
 
 **Style system (in `frontend/src/index.css`, Tailwind v4 `@theme` block):**
 ```css

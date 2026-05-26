@@ -78,15 +78,24 @@ router.post('/insight', requireAuth, async (req, res) => {
 
 // POST generar plan de entrenamiento con IA
 router.post('/generate-plan', requireAuth, async (req, res) => {
-  const { goals, days_per_week, fitness_level, equipment, focus_areas } = req.body;
+  const { goals, days_per_week, fitness_level, equipment, focus_areas, cardio_minutes = 15 } = req.body;
   const userId = req.user.id;
 
-  const planPrompt = `Crea un plan de entrenamiento de 4 semanas (muestra solo semana 1 con 3 sesiones de ejemplo):
+  const planPrompt = `Crea un plan de entrenamiento de 4 semanas (genera solo semana 1 con ${days_per_week} sesiones):
 - Objetivo: ${goals}
 - Días por semana: ${days_per_week}
 - Nivel: ${fitness_level}
 - Equipo: ${equipment}
 - Áreas de enfoque: ${focus_areas}
+
+REGLAS OBLIGATORIAS:
+1. Cada sesión debe tener exactamente 4 bloques en este orden:
+   a) CALENTAMIENTO (exercise_type: "warmup"): 3 ejercicios de movilidad articular con duration_seconds (30-60s cada uno), sets: 1, sin reps ni weight_kg
+   b) BLOQUE PRINCIPAL (exercise_type: "strength"): 5-7 ejercicios en orden correcto — primero compuestos multiarticulares (más pesados), luego compuestos secundarios, al final aislamientos. Descansos: compuestos pesados (sentadilla, peso muerto, press banca, remo) → rest_seconds: 150-180; compuestos secundarios → rest_seconds: 90-120; aislamientos → rest_seconds: 60
+   c) CARDIO (exercise_type: "cardio"): ${cardio_minutes === 0 ? 'NO incluir bloque de cardio' : `1 ejercicio cardiovascular (correr, escaladora, bicicleta estática) con duration_seconds: ${cardio_minutes * 60}, sets: 1, sin reps ni weight_kg. Ajusta la intensidad según el objetivo: si el objetivo incluye ganar músculo, cardio ligero; si incluye perder grasa, cardio moderado-intenso`}
+   d) ESTIRAMIENTO (exercise_type: "cooldown"): 3 estiramientos estáticos enfocados en los músculos trabajados, con duration_seconds (30-45s cada uno), sets: 1, sin reps ni weight_kg
+2. Los ejercicios de fuerza deben progresar en dificultad acorde al nivel: ${fitness_level}
+3. Si hay varios días, no repetir los mismos grupos musculares en días consecutivos
 
 Responde SOLO con JSON válido, sin texto extra, sin markdown:
 {
@@ -97,12 +106,22 @@ Responde SOLO con JSON válido, sin texto extra, sin markdown:
     {
       "name": "...",
       "day_order": 1,
-      "estimated_duration": 50,
-      "estimated_calories": 300,
+      "estimated_duration": 60,
+      "estimated_calories": 350,
       "rpe_target": 7,
       "focus_areas": [...],
       "exercises": [
-        { "exercise_name": "...", "sets": 4, "reps": 8, "weight_kg": 60, "rest_seconds": 90 }
+        { "exercise_type": "warmup",   "exercise_name": "Círculos de hombros",      "sets": 1, "duration_seconds": 45 },
+        { "exercise_type": "warmup",   "exercise_name": "Movilidad de cadera",       "sets": 1, "duration_seconds": 45 },
+        { "exercise_type": "warmup",   "exercise_name": "Rotación de tobillos",      "sets": 1, "duration_seconds": 30 },
+        { "exercise_type": "strength", "exercise_name": "Press de Banca con Barra",  "sets": 4, "reps": 6,  "weight_kg": 80, "rest_seconds": 180 },
+        { "exercise_type": "strength", "exercise_name": "Press Inclinado Mancuernas","sets": 3, "reps": 10, "weight_kg": 30, "rest_seconds": 120 },
+        { "exercise_type": "strength", "exercise_name": "Fondos en Paralelas",       "sets": 3, "reps": 12, "weight_kg": 0,  "rest_seconds": 90 },
+        { "exercise_type": "strength", "exercise_name": "Extensión de Tríceps",      "sets": 3, "reps": 12, "weight_kg": 15, "rest_seconds": 60 },
+        { "exercise_type": "strength", "exercise_name": "Elevaciones Laterales",     "sets": 3, "reps": 15, "weight_kg": 10, "rest_seconds": 60 },
+        { "exercise_type": "cooldown", "exercise_name": "Estiramiento de pecho",     "sets": 1, "duration_seconds": 40 },
+        { "exercise_type": "cooldown", "exercise_name": "Estiramiento de tríceps",   "sets": 1, "duration_seconds": 40 },
+        { "exercise_type": "cooldown", "exercise_name": "Estiramiento de hombros",   "sets": 1, "duration_seconds": 30 }
       ]
     }
   ]
@@ -113,7 +132,7 @@ Responde SOLO con JSON válido, sin texto extra, sin markdown:
     text = await chat([
       { role: 'system', content: 'Eres un entrenador personal certificado. Crea planes de entrenamiento en JSON estructurado y válido. Responde SOLO con JSON, sin texto extra, sin bloques de código markdown.' },
       { role: 'user',   content: planPrompt },
-    ], 1500);
+    ], 3000);
   } catch (aiErr) {
     const statusCode = aiErr.status === 429 ? 429 : 502;
     return res.status(statusCode).json({ error: aiErr.message });
@@ -177,13 +196,15 @@ Responde SOLO con JSON válido, sin texto extra, sin markdown:
     if (savedSession && session.exercises?.length) {
       await supabase.from('session_exercises').insert(
         session.exercises.map((ex, idx) => ({
-          session_id:    savedSession.id,
-          exercise_name: ex.exercise_name,
-          order_num:     idx + 1,
-          sets:          ex.sets,
-          reps:          ex.reps,
-          weight_kg:     ex.weight_kg,
-          rest_seconds:  ex.rest_seconds,
+          session_id:       savedSession.id,
+          exercise_name:    ex.exercise_name,
+          order_num:        idx + 1,
+          sets:             ex.sets,
+          reps:             ex.reps             ?? null,
+          weight_kg:        ex.weight_kg        ?? null,
+          rest_seconds:     ex.rest_seconds     ?? null,
+          duration_seconds: ex.duration_seconds ?? null,
+          exercise_type:    ex.exercise_type    ?? 'strength',
         }))
       );
     }

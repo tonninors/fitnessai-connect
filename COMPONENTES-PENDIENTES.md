@@ -15,7 +15,7 @@
 - [x] Perfil con wearables (toggle), configuración, logout
 - [x] Chat entrenador ↔ usuario (Supabase Realtime)
 - [x] Dashboard Coach (stats, clientes, streaks)
-- [x] WorkoutModal (FC condicional a wearable, calorías, timer, insight IA)
+- [x] WorkoutModal (FC condicional a wearable, calorías, timer, insight IA, flujo por bloques, serie-a-serie, tarjeta de ejercicio activo con peso/reps)
 - [x] Base de datos completa en Supabase (11 tablas + 1 vista + RLS)
 - [x] Backend con 20+ endpoints (Express + Supabase + Groq)
 - [x] Auto-archive de planes anteriores al generar nuevo
@@ -34,11 +34,11 @@
 - Agregar endpoint `POST /api/workouts/plans/:id/generate-weeks`
 - Usar Groq para generar progresión de carga semana a semana
 
-### Logger de series en vivo (SetLogger)
-- WorkoutModal muestra el ejercicio actual pero no registra series
-- Agregar UI para "Serie completada" que llama a `POST /api/workouts/sessions/:s/exercises/:e/sets`
-- Mostrar historial de las últimas series del mismo ejercicio para referencia
-- El endpoint backend ya existe
+### Logger de series en vivo (SetLogger) — parcialmente hecho
+- ✅ WorkoutModal ya rastrea series (contador, barra de progreso, descanso entre series)
+- ⬜ Faltan inputs de reps/peso real por serie → llamar a `POST /api/workouts/sessions/:s/exercises/:e/sets`
+- ⬜ Historial de las últimas series del mismo ejercicio para referencia de carga
+- El endpoint backend ya existe (`session_sets` table con `reps_actual`, `weight_actual_kg`)
 
 ### Notificaciones push
 - Servicio: **OneSignal** (free tier: 10K suscriptores)

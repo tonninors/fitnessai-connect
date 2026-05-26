@@ -14,7 +14,7 @@ router.get('/plan', requireAuth, async (req, res) => {
       trainer_profiles(full_name, rating),
       workout_sessions(
         id, name, scheduled_date, status, estimated_duration, focus_areas, rpe_target, week_number, day_order,
-        session_exercises(id, exercise_name, order_num, sets, reps, weight_kg, rest_seconds, completed)
+        session_exercises(id, exercise_name, order_num, sets, reps, weight_kg, rest_seconds, duration_seconds, exercise_type, completed)
       )
     `)
     .eq('user_id', req.user.id)
@@ -27,14 +27,14 @@ router.get('/plan', requireAuth, async (req, res) => {
   res.json(data);
 });
 
-// GET próximas sesiones (sin completar)
+// GET próximas sesiones (sin completar, solo del plan activo)
 router.get('/upcoming', requireAuth, async (req, res) => {
   const today = new Date().toISOString().split('T')[0];
   const { data, error } = await supabase
     .from('workout_sessions')
-    .select('id, name, scheduled_date, estimated_duration, focus_areas, rpe_target, status, day_order')
+    .select('id, name, scheduled_date, estimated_duration, focus_areas, rpe_target, status, day_order, workout_plans!inner(status)')
     .eq('user_id', req.user.id)
-    .gte('scheduled_date', today)
+    .eq('workout_plans.status', 'active')
     .neq('status', 'completed')
     .neq('status', 'skipped')
     .order('scheduled_date', { ascending: true })

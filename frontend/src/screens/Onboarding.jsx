@@ -14,10 +14,17 @@ const GOALS = [
 
 const DAYS      = [2, 3, 4, 5, 6];
 const DURATIONS = [30, 45, 60, 90];
+const CARDIO_OPTS = [
+  { value: 0,  label: 'Sin cardio' },
+  { value: 10, label: '10 min' },
+  { value: 15, label: '15 min' },
+  { value: 20, label: '20 min' },
+  { value: 30, label: '30 min' },
+];
 const LEVELS    = [
-  { id: 'beginner',     label: 'Principiante', desc: 'Menos de 6 meses entrenando' },
-  { id: 'intermediate', label: 'Intermedio',   desc: '6 meses – 2 años' },
-  { id: 'advanced',     label: 'Avanzado',     desc: 'Más de 2 años de experiencia' },
+  { id: 'beginner',     label: 'Principiante', desc: 'Menos de 1 año entrenando' },
+  { id: 'intermediate', label: 'Intermedio',   desc: '1 a 4 años de experiencia' },
+  { id: 'advanced',     label: 'Avanzado',     desc: 'Más de 4 años de experiencia' },
 ];
 const EQUIPMENT = [
   { id: 'ninguno',           label: 'Sin equipo', icon: '🏠' },
@@ -35,8 +42,9 @@ const stepVariants = {
 export default function Onboarding({ user, onComplete }) {
   const [step,     setStep]     = useState(0);
   const [goals,    setGoals]    = useState([]);
-  const [days,     setDays]     = useState(3);
-  const [duration, setDuration] = useState(45);
+  const [days,         setDays]         = useState(3);
+  const [duration,     setDuration]     = useState(45);
+  const [cardioMin,    setCardioMin]    = useState(15);
   const [level,    setLevel]    = useState('');
   const [equip,    setEquip]    = useState([]);
   const [loading,  setLoading]  = useState(false);
@@ -68,17 +76,18 @@ export default function Onboarding({ user, onComplete }) {
 
       await api.patch('/profile', {
         goals:                { primary: goals[0] || null, all: goals },
-        availability:         { days_per_week: days, session_duration: duration },
+        availability:         { days_per_week: days, session_duration: duration, cardio_minutes: cardioMin },
         onboarding_completed: true,
       });
 
       try {
         await api.post('/ai/generate-plan', {
-          goals:         goalsStr,
-          days_per_week: days,
-          fitness_level: level,
-          equipment:     equipStr,
-          focus_areas:   goalsStr,
+          goals:          goalsStr,
+          days_per_week:  days,
+          fitness_level:  level,
+          equipment:      equipStr,
+          focus_areas:    goalsStr,
+          cardio_minutes: cardioMin,
         });
       } catch (aiErr) {
         console.warn('Plan IA no generado:', aiErr.message);
@@ -191,7 +200,18 @@ export default function Onboarding({ user, onComplete }) {
               ))}
             </div>
 
-            <div className="mt-5 flex gap-3 items-start bg-surface2 rounded-xl p-4 border border-border">
+            <div className="text-[10px] text-txt3 uppercase tracking-wider font-semibold mb-2.5 mt-6">Cardio por sesión</div>
+            <div className="onboard-num-row flex-wrap">
+              {CARDIO_OPTS.map(({ value, label }) => (
+                <div
+                  key={value}
+                  className={`onboard-num-chip${cardioMin === value ? ' selected' : ''}`}
+                  onClick={() => setCardioMin(value)}
+                >{label}</div>
+              ))}
+            </div>
+
+            <div className="flex gap-3 items-start bg-surface2 rounded-xl p-4 border border-border" style={{ marginTop: '32px' }}>
               <Sparkles size={16} className="text-accent shrink-0 mt-0.5" />
               <p className="text-sm text-txt2 leading-relaxed">
                 Con {days} días × {duration} min la IA diseñará un plan de{' '}

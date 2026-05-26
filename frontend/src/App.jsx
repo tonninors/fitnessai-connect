@@ -35,6 +35,7 @@ export default function App() {
   const [loading,       setLoading]       = useState(true);
   const [profile,       setProfile]       = useState(null);
   const [profileLoad,   setProfileLoad]   = useState(false);
+  const [profileError,  setProfileError]  = useState(false);
   const [isTrainer,     setIsTrainer]     = useState(false);
   const [activeScreen,  setActiveScreen]  = useState('home');
   const [activeSession,  setActiveSession]  = useState(null);
@@ -42,7 +43,9 @@ export default function App() {
   const [clock,         setClock]         = useState(getTime());
 
   useEffect(() => {
+    console.log('[App] getSession...');
     supabase.auth.getSession().then(({ data: { session } }) => {
+      console.log('[App] session:', session ? 'ok' : 'null');
       setSession(session);
       setLoading(false);
     });
@@ -57,14 +60,16 @@ export default function App() {
   useEffect(() => {
     if (!session) return;
     setProfileLoad(true);
+    setProfileError(false);
+    console.log('[App] loading profile...');
     Promise.all([
-      api.get('/profile'),
+      api.get('/profile').then(r => { console.log('[App] /profile ok'); return r; }),
       supabase.from('trainer_profiles').select('id').eq('id', session.user.id).maybeSingle(),
     ]).then(([prof, trainerRes]) => {
       setProfile(prof);
       setIsTrainer(!!trainerRes.data);
       setProfileLoad(false);
-    }).catch(() => setProfileLoad(false));
+    }).catch((err) => { console.error('[App] profile load failed:', err); setProfileLoad(false); setProfileError(true); });
   }, [session]);
 
   useEffect(() => {
@@ -72,10 +77,25 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
 
-  if (loading || profileLoad) return null;
+  if (loading || profileLoad) return (
+    <div className="flex items-center justify-center min-h-screen bg-[#0D0D0D]">
+      <div className="w-8 h-8 border-2 border-[#FF5733] border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
   if (!session) return <Login />;
   if (authEvent === 'PASSWORD_RECOVERY') return <ResetPassword onDone={() => setAuthEvent(null)} />;
-  if (!profile) return null;
+  if (profileError) return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-[#0D0D0D] gap-4 px-6 text-center">
+      <p className="text-white font-semibold">No se pudo conectar al servidor</p>
+      <p className="text-[#888] text-sm">Asegúrate de que el backend esté corriendo en el puerto 3000</p>
+      <button
+        className="mt-2 px-6 py-2.5 bg-[#FF5733] text-white rounded-xl text-sm font-semibold"
+        onClick={() => setSession(s => ({ ...s }))}
+      >
+        Reintentar
+      </button>
+    </div>
+  );
 
   const showCoach = isTrainer && activeScreen === 'coach';
 
