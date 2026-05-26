@@ -30,3 +30,6 @@ frontend/package-lock.json
 # Logs
 *.log
 npm-debug.log*
+
+# Vite runtime cache
+frontend/vite.config.js.timestamp-*.mjs
