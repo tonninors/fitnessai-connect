@@ -11,10 +11,13 @@ FitnessAI Connect: a LATAM fitness-tech platform connecting personal trainers wi
 ## Development commands
 
 ```bash
-# Backend — from /backend
+# Both servers at once — from repo root
+npm run dev        # concurrently runs backend (port 3000) + frontend (port 5173)
+
+# Backend only — from /backend
 npm run dev        # nodemon + --env-file=.env on http://localhost:3000 (also loads via dotenv in server.js)
 
-# Frontend — from /frontend
+# Frontend only — from /frontend
 npm run dev        # Vite on http://localhost:5173
 # Vite proxies /api/* → localhost:3000 (see vite.config.js)
 
@@ -30,9 +33,9 @@ No test runner or linter is configured in this project.
 ### Frontend routing (no React Router)
 `App.jsx` manages all screen navigation via a single `activeScreen` state string. There is no URL-based routing — screens are conditionally rendered with a switch. The onboarding gate checks `profile?.onboarding_completed` and redirects before any screen renders.
 
-Auth flow: `supabase.auth.onAuthStateChange()` → fetch profile → detect trainer role (`isTrainer`) → gate app render until profile loads.
+Auth flow: `supabase.auth.onAuthStateChange()` → fetch profile → detect trainer role (`isTrainer`) → gate app render until profile loads. When `authEvent === 'PASSWORD_RECOVERY'` fires, `App.jsx` forces `activeScreen = 'resetPassword'` before the normal gate, rendering `ResetPassword.jsx` which handles the OTP confirmation and new-password submission.
 
-Trainer role: when `isTrainer=true`, `DashboardCoach.jsx` is accessible as `activeScreen === 'coach'`. It is not in the main nav array — navigation to it must be added conditionally. Regular users never see this screen.
+Trainer role: `isTrainer` is set to `true` when the profile row has a matching entry in `trainer_profiles`. When `isTrainer=true`, `DashboardCoach.jsx` is accessible as `activeScreen === 'coach'`. It is not in the main nav array — navigation to it must be added conditionally. Regular users never see this screen.
 
 **No custom hooks or utils layer** — all logic is inline in screen components (`frontend/src/screens/`). There is no `hooks/` or `utils/` directory. Extract only when a pattern repeats across ≥3 screens.
 
@@ -62,13 +65,39 @@ After generating an insight, the DB insert happens **fire-and-forget** (async, a
 ### Home dashboard (`backend/routes/home.js`)
 Returns `today_session` (scheduled for today, not skipped) OR `next_session` (first pending session from active plan, if no today session). Uses `workout_plans!inner(status)` join to filter by active plans only. All queries run in a single `Promise.all`.
 
-### Progress (`backend/routes/progress.js`)
-- `GET /progress/stats` — monthly stats (sessions completed, volume kg, avg RPE, active days)
-- `GET /progress/chart` — weekly volume data for Recharts; supports `period` param (`4w`/`3m`/`1y`)
-- `POST /progress/metrics` + `GET /progress/metrics` — body metrics (weight, HRV, sleep, body fat, etc.)
+### Backend endpoint reference
+
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| GET | `/health` | — | Status check |
+| POST | `/auth/signup` | — | Email/password registration |
+| POST | `/auth/signin` | — | Returns Supabase session |
+| POST | `/auth/signout` | ✓ | Invalidates session |
+| POST | `/auth/check-email` | — | Email existence check |
+| POST | `/auth/reset-password` | — | Sends OTP via `resetPasswordForEmail()` |
+| GET | `/home` | ✓ | Dashboard: today_session or next_session, activity rings, HRV, insights (single `Promise.all`) |
+| GET | `/workouts/plan` | ✓ | Active plan with sessions + exercises |
+| GET | `/workouts/upcoming` | ✓ | Next 5 pending sessions |
+| POST | `/workouts/sessions/:id/start` | ✓ | Mark session `in_progress` |
+| PATCH | `/workouts/sessions/:id/complete` | ✓ | Close session + update streak |
+| PATCH | `/workouts/sessions/:sessionId/exercises/:exerciseId/toggle` | ✓ | Mark exercise done |
+| POST | `/workouts/sessions/:sessionId/exercises/:exerciseId/sets` | ✓ | Upsert set (reps, weight) |
+| GET | `/progress/stats` | ✓ | Monthly stats (sessions, volume kg, avg RPE, active days) |
+| GET | `/progress/chart` | ✓ | Weekly volume for Recharts; `period` param: `4w`/`3m`/`1y` |
+| POST | `/progress/metrics` | ✓ | Upsert daily body metrics (weight, HRV, sleep, body fat, etc.) |
+| GET | `/progress/metrics` | ✓ | Metric history (default 30 days) |
+| GET | `/profile` | ✓ | Full profile + wearable connections + session count |
+| PATCH | `/profile` | ✓ | Update whitelisted fields only |
+| POST | `/profile/wearables` | ✓ | Upsert wearable connection |
+| DELETE | `/profile/wearables/:platform` | ✓ | Disconnect wearable |
+| POST | `/ai/insight` | ✓ | Generate contextual insight; auto-retry on 429 (2s → 5s backoff) |
+| POST | `/ai/generate-plan` | ✓ | Generate week-1 plan as JSON; archives previous active plan |
 
 ### Auth routes (`backend/routes/auth.js`)
 Handles email/password sign-up, sign-in, sign-out, and password recovery (OTP flow). Delegates to Supabase Auth — no custom JWT minting. Password reset sends an OTP via `supabase.auth.resetPasswordForEmail()`.
+
+### Progress (`backend/routes/progress.js`)
+See endpoint table above. The `user_monthly_stats` DB view aggregates monthly workouts, calories, and volume.
 
 ### Rate limiting (`backend/server.js`)
 `express-rate-limit`: 15-min window, max **100 req** in production / **1000 req** in development. Applied globally before all routes.

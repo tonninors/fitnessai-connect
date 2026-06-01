@@ -80,22 +80,36 @@ router.post('/insight', requireAuth, async (req, res) => {
 router.post('/generate-plan', requireAuth, async (req, res) => {
   const { goals, days_per_week, fitness_level, equipment, focus_areas, cardio_minutes = 15 } = req.body;
   const userId = req.user.id;
+  const daysNum = parseInt(days_per_week, 10) || 3;
 
-  const planPrompt = `Crea un plan de entrenamiento de 4 semanas (genera solo semana 1 con ${days_per_week} sesiones):
+  // Split recomendado según frecuencia semanal
+  const SPLIT_GUIDE = {
+    2: 'Full Body A / Full Body B — varía el enfoque de compuestos (día A: dominante de empuje; día B: dominante de jalón/piernas). 8-9 ejercicios de fuerza por sesión.',
+    3: 'Push / Pull / Legs — día 1 empuje (pecho, hombros, tríceps), día 2 jalón (espalda, bíceps), día 3 piernas (cuádriceps, isquios, glúteos). 5-6 ejercicios de fuerza por sesión.',
+    4: 'Upper A / Lower A / Upper B / Lower B — alterna tren superior e inferior. Upper A enfatiza press horizontal; Upper B press vertical y jalones. 5-6 ejercicios de fuerza por sesión.',
+    5: 'Push / Pull / Legs / Upper / Lower — cubre todos los grupos 1.5× por semana. 5 ejercicios de fuerza por sesión para controlar volumen.',
+    6: 'Push / Pull / Legs / Push / Pull / Legs — doble frecuencia por grupo muscular. Día 1 y 4 empuje; 2 y 5 jalón; 3 y 6 piernas. 4-5 ejercicios de fuerza por sesión.',
+  };
+  const splitGuide = SPLIT_GUIDE[daysNum] || SPLIT_GUIDE[3];
+
+  const planPrompt = `Crea un plan de entrenamiento de 4 semanas. Genera EXACTAMENTE ${daysNum} sesiones (semana 1):
 - Objetivo: ${goals}
-- Días por semana: ${days_per_week}
+- Días por semana: ${daysNum}
 - Nivel: ${fitness_level}
-- Equipo: ${equipment}
+- Equipo disponible: ${equipment}
 - Áreas de enfoque: ${focus_areas}
 
-REGLAS OBLIGATORIAS:
-1. Cada sesión debe tener exactamente 4 bloques en este orden:
-   a) CALENTAMIENTO (exercise_type: "warmup"): 3 ejercicios de movilidad articular con duration_seconds (30-60s cada uno), sets: 1, sin reps ni weight_kg
-   b) BLOQUE PRINCIPAL (exercise_type: "strength"): 5-7 ejercicios en orden correcto — primero compuestos multiarticulares (más pesados), luego compuestos secundarios, al final aislamientos. Descansos: compuestos pesados (sentadilla, peso muerto, press banca, remo) → rest_seconds: 150-180; compuestos secundarios → rest_seconds: 90-120; aislamientos → rest_seconds: 60
-   c) CARDIO (exercise_type: "cardio"): ${cardio_minutes === 0 ? 'NO incluir bloque de cardio' : `1 ejercicio cardiovascular (correr, escaladora, bicicleta estática) con duration_seconds: ${cardio_minutes * 60}, sets: 1, sin reps ni weight_kg. Ajusta la intensidad según el objetivo: si el objetivo incluye ganar músculo, cardio ligero; si incluye perder grasa, cardio moderado-intenso`}
-   d) ESTIRAMIENTO (exercise_type: "cooldown"): 3 estiramientos estáticos enfocados en los músculos trabajados, con duration_seconds (30-45s cada uno), sets: 1, sin reps ni weight_kg
-2. Los ejercicios de fuerza deben progresar en dificultad acorde al nivel: ${fitness_level}
-3. Si hay varios días, no repetir los mismos grupos musculares en días consecutivos
+DISTRIBUCIÓN DE SESIONES (obligatoria):
+${splitGuide}
+
+REGLAS OBLIGATORIAS POR SESIÓN:
+1. Cada sesión tiene exactamente 4 bloques ordenados:
+   a) CALENTAMIENTO (exercise_type: "warmup"): 3 ejercicios de movilidad articular ESPECÍFICOS para los músculos que se trabajan ese día. duration_seconds: 30-60, sets: 1. Sin reps ni weight_kg.
+   b) BLOQUE PRINCIPAL (exercise_type: "strength"): ejercicios ÚNICOS en cada sesión, nunca repetir el mismo ejercicio en dos días de la semana. Orden: primero compuestos multiarticulares (más pesados), luego secundarios, al final aislamientos. Descansos: compuestos pesados (sentadilla, peso muerto, press banca, remo) → rest_seconds: 150-180; compuestos secundarios → rest_seconds: 90-120; aislamientos → rest_seconds: 60.
+   c) CARDIO (exercise_type: "cardio"): ${cardio_minutes === 0 ? 'NO incluir este bloque' : `1 ejercicio cardiovascular variado (corre, escaladora, bicicleta estática, remo ergómetro) con duration_seconds: ${cardio_minutes * 60}, sets: 1. Sin reps ni weight_kg. Intensidad: objetivo ganar músculo → ligero; objetivo perder grasa → moderado-intenso.`}
+   d) ESTIRAMIENTO (exercise_type: "cooldown"): 3 estiramientos estáticos ESPECÍFICOS para los músculos trabajados ese día. duration_seconds: 30-45, sets: 1. Sin reps ni weight_kg.
+2. Nivel ${fitness_level}: principiante → ejercicios básicos, menos series, pesos moderados; intermedio → variaciones, progresión ondulada; avanzado → técnicas avanzadas, alta intensidad.
+3. NUNCA repetir el mismo ejercicio de fuerza en dos sesiones distintas del plan.
 
 Responde SOLO con JSON válido, sin texto extra, sin markdown:
 {
@@ -104,24 +118,22 @@ Responde SOLO con JSON válido, sin texto extra, sin markdown:
   "focus_areas": [...],
   "sessions": [
     {
-      "name": "...",
+      "name": "Nombre descriptivo del día (ej: Push A — Pecho y Hombros)",
       "day_order": 1,
       "estimated_duration": 60,
       "estimated_calories": 350,
       "rpe_target": 7,
-      "focus_areas": [...],
+      "focus_areas": ["músculo1", "músculo2"],
       "exercises": [
-        { "exercise_type": "warmup",   "exercise_name": "Círculos de hombros",      "sets": 1, "duration_seconds": 45 },
-        { "exercise_type": "warmup",   "exercise_name": "Movilidad de cadera",       "sets": 1, "duration_seconds": 45 },
-        { "exercise_type": "warmup",   "exercise_name": "Rotación de tobillos",      "sets": 1, "duration_seconds": 30 },
-        { "exercise_type": "strength", "exercise_name": "Press de Banca con Barra",  "sets": 4, "reps": 6,  "weight_kg": 80, "rest_seconds": 180 },
-        { "exercise_type": "strength", "exercise_name": "Press Inclinado Mancuernas","sets": 3, "reps": 10, "weight_kg": 30, "rest_seconds": 120 },
-        { "exercise_type": "strength", "exercise_name": "Fondos en Paralelas",       "sets": 3, "reps": 12, "weight_kg": 0,  "rest_seconds": 90 },
-        { "exercise_type": "strength", "exercise_name": "Extensión de Tríceps",      "sets": 3, "reps": 12, "weight_kg": 15, "rest_seconds": 60 },
-        { "exercise_type": "strength", "exercise_name": "Elevaciones Laterales",     "sets": 3, "reps": 15, "weight_kg": 10, "rest_seconds": 60 },
-        { "exercise_type": "cooldown", "exercise_name": "Estiramiento de pecho",     "sets": 1, "duration_seconds": 40 },
-        { "exercise_type": "cooldown", "exercise_name": "Estiramiento de tríceps",   "sets": 1, "duration_seconds": 40 },
-        { "exercise_type": "cooldown", "exercise_name": "Estiramiento de hombros",   "sets": 1, "duration_seconds": 30 }
+        { "exercise_type": "warmup",   "exercise_name": "...", "sets": 1, "duration_seconds": 45 },
+        { "exercise_type": "warmup",   "exercise_name": "...", "sets": 1, "duration_seconds": 45 },
+        { "exercise_type": "warmup",   "exercise_name": "...", "sets": 1, "duration_seconds": 30 },
+        { "exercise_type": "strength", "exercise_name": "...", "sets": 4, "reps": 6,  "weight_kg": 0, "rest_seconds": 180 },
+        { "exercise_type": "strength", "exercise_name": "...", "sets": 3, "reps": 10, "weight_kg": 0, "rest_seconds": 120 },
+        { "exercise_type": "strength", "exercise_name": "...", "sets": 3, "reps": 12, "weight_kg": 0, "rest_seconds": 60 },
+        { "exercise_type": "cooldown", "exercise_name": "...", "sets": 1, "duration_seconds": 40 },
+        { "exercise_type": "cooldown", "exercise_name": "...", "sets": 1, "duration_seconds": 40 },
+        { "exercise_type": "cooldown", "exercise_name": "...", "sets": 1, "duration_seconds": 30 }
       ]
     }
   ]
@@ -132,7 +144,7 @@ Responde SOLO con JSON válido, sin texto extra, sin markdown:
     text = await chat([
       { role: 'system', content: 'Eres un entrenador personal certificado. Crea planes de entrenamiento en JSON estructurado y válido. Responde SOLO con JSON, sin texto extra, sin bloques de código markdown.' },
       { role: 'user',   content: planPrompt },
-    ], 3000);
+    ], 6000);
   } catch (aiErr) {
     const statusCode = aiErr.status === 429 ? 429 : 502;
     return res.status(statusCode).json({ error: aiErr.message });
@@ -170,10 +182,22 @@ Responde SOLO con JSON válido, sin texto extra, sin markdown:
 
   if (planErr) return res.status(400).json({ error: planErr.message });
 
+  // Distribuir sesiones en días realistas de la semana según frecuencia
+  const DAY_OFFSETS = {
+    1: [0],
+    2: [0, 3],
+    3: [0, 2, 4],
+    4: [0, 1, 3, 4],
+    5: [0, 1, 2, 3, 4],
+    6: [0, 1, 2, 3, 4, 5],
+  };
+  const offsets = DAY_OFFSETS[daysNum] || DAY_OFFSETS[3];
+
   const today = new Date();
   await Promise.all((parsed.sessions || []).map(async (session) => {
     const scheduledDate = new Date(today);
-    scheduledDate.setDate(scheduledDate.getDate() + (session.day_order - 1) * 2);
+    const offsetDays = offsets[session.day_order - 1] ?? (session.day_order - 1);
+    scheduledDate.setDate(scheduledDate.getDate() + offsetDays);
 
     const { data: savedSession } = await supabase
       .from('workout_sessions')

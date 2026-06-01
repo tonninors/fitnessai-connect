@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, Play, Check, Calendar, Trophy, CheckCircle2, X, Clock, Zap, Dumbbell, Timer } from 'lucide-react';
 import { api } from '../api/client.js';
 
-export default function Plans({ onStartWorkout }) {
+export default function Plans({ onStartWorkout, runningSession, onResumeWorkout, liveCompleted }) {
   const [plan,           setPlan]           = useState(null);
   const [upcoming,       setUpcoming]       = useState([]);
   const [loading,        setLoading]        = useState(true);
@@ -20,6 +20,17 @@ export default function Plans({ onStartWorkout }) {
     ]).then(([p, u]) => {
       setPlan(p);
       setUpcoming(u || []);
+      // Inicializar estado de ejercicios completados desde el backend
+      if (p?.workout_sessions) {
+        const initial = {};
+        for (const session of p.workout_sessions) {
+          const completedIds = (session.session_exercises ?? [])
+            .filter(e => e.completed)
+            .map(e => e.id);
+          if (completedIds.length > 0) initial[session.id] = new Set(completedIds);
+        }
+        setExercises(initial);
+      }
     }).catch(console.error).finally(() => setLoading(false));
   }, []);
 
@@ -49,7 +60,7 @@ export default function Plans({ onStartWorkout }) {
     ?.filter(s => !['completed', 'skipped'].includes(s.status) && s.id !== activeSession?.id)
     ?.sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date))[0];
   const exList           = activeSession?.session_exercises ?? [];
-  const done             = isCompleted ? new Set(exList.map(e => e.id)) : (exercises[activeSession?.id] ?? new Set());
+  const done             = isCompleted ? new Set(exList.map(e => e.id)) : (runningSession?.id === activeSession?.id && liveCompleted != null ? liveCompleted : (exercises[activeSession?.id] ?? new Set()));
   const allExercisesDone = exList.length > 0 && done.size >= exList.length;
 
   async function generatePlan() {
@@ -160,9 +171,19 @@ export default function Plans({ onStartWorkout }) {
                 )}
               </div>
               {activeSession && !isCompleted && (
-                <button className="btn btn-primary" onClick={() => onStartWorkout(activeSession)}>
-                  <Play size={16} fill="white" /> Iniciar ahora
-                </button>
+                runningSession?.id === activeSession.id ? (
+                  <button
+                    className="mt-5 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-accent/25 text-accent text-xs font-semibold hover:border-accent/50 transition-colors"
+                    onClick={onResumeWorkout}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" />
+                    Ver entrenamiento en curso
+                  </button>
+                ) : (
+                  <button className="btn btn-primary" onClick={() => onStartWorkout(activeSession)}>
+                    <Play size={16} fill="white" /> Iniciar ahora
+                  </button>
+                )
               )}
               {isCompleted && (
                 <div className="flex items-center gap-2 mt-2 text-green text-sm font-medium">
@@ -198,11 +219,10 @@ export default function Plans({ onStartWorkout }) {
                         const blockIdx   = block.indexOf(ex) + 1;
                         return (
                           <div key={ex.id}
-                            className={`flex items-center gap-3.5 px-4 py-3.5 border-b border-border last:border-b-0 cursor-pointer transition-all
+                            className={`flex items-center gap-3.5 px-4 py-3.5 border-b border-border last:border-b-0 transition-all
                               ${isDone ? 'opacity-40' : ''}
                               ${isNext ? 'bg-accent/5' : ''}
                             `}
-                            onClick={() => !isCompleted && toggleExercise(ex)}
                           >
                             <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold shrink-0 transition-colors
                               ${isDone ? 'bg-accent text-white' : type === 'warmup' ? 'bg-green-dim text-green' : type === 'cooldown' ? 'bg-blue-dim text-blue' : type === 'cardio' ? 'bg-orange-500/15 text-[#f97316]' : isNext ? 'bg-accent/20 text-accent' : 'bg-surface2 text-txt3'}`}
@@ -251,7 +271,7 @@ export default function Plans({ onStartWorkout }) {
               })}
 
 
-              {allExercisesDone && !isCompleted && (
+              {allExercisesDone && !isCompleted && !runningSession && (
                 <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mt-3">
                   <button className="btn btn-primary" onClick={finishSession} disabled={finishing}>
                     <CheckCircle2 size={16} />

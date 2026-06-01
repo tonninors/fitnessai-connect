@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Play, Check, Sparkles, ChevronRight, Calendar, CheckCircle } from 'lucide-react';
+import { Play, Check, Sparkles, ChevronRight, Calendar, CheckCircle, ChevronUp } from 'lucide-react';
 import { api } from '../api/client.js';
 
-export default function Home({ onStartWorkout, onNavigate }) {
+const BLOCK_ORDER = ['warmup', 'strength', 'cardio', 'cooldown'];
+const BLOCK_LABEL = { warmup: 'Calentamiento', strength: 'Entrenamiento', cardio: 'Cardio', cooldown: 'Estiramiento' };
+
+export default function Home({ onStartWorkout, onNavigate, runningSession, onResumeWorkout, liveCompleted, liveActiveEx }) {
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -49,6 +52,86 @@ export default function Home({ onStartWorkout, onNavigate }) {
           <WeekStrip sessions={week_sessions} today={today} />
         </div>
       )}
+
+      {/* Entrenamiento en curso */}
+      {runningSession && (() => {
+        const allEx    = runningSession.session_exercises ?? [];
+        const done     = liveCompleted ?? new Set();
+        const total    = allEx.length;
+        const doneCount = done.size;
+        // Ejercicio actual: el primero pendiente respetando orden de bloques
+        const sorted   = [...allEx].sort((a, b) => {
+          const bi = BLOCK_ORDER.indexOf(a.exercise_type ?? 'strength');
+          const bj = BLOCK_ORDER.indexOf(b.exercise_type ?? 'strength');
+          return bi !== bj ? bi - bj : (a.order_num ?? 0) - (b.order_num ?? 0);
+        });
+        const current  = sorted.find(e => !done.has(e.id));
+        const blockLabel = current ? BLOCK_LABEL[current.exercise_type ?? 'strength'] : null;
+        const isTimed  = current?.duration_seconds != null;
+        return (
+          <div className="section pb-0">
+            <motion.button
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              onClick={onResumeWorkout}
+              className="w-full text-left card border border-accent/30 cursor-pointer hover:border-accent/50 transition-colors !py-3.5"
+            >
+              {/* Header row */}
+              <div className="flex items-center justify-between mb-2.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" />
+                  <span className="text-accent text-[10px] font-bold uppercase tracking-wider">En vivo</span>
+                  <span className="text-txt3 text-[10px] mx-1">·</span>
+                  <span className="text-txt3 text-[10px] truncate max-w-[140px]">{runningSession.name}</span>
+                </div>
+                <span className="text-txt3 text-[10px] shrink-0">{doneCount}/{total}</span>
+              </div>
+              {/* Progress bar */}
+              <div className="w-full h-[3px] bg-border rounded-full overflow-hidden mb-3">
+                <div
+                  className="h-full bg-accent rounded-full transition-all duration-500"
+                  style={{ width: total > 0 ? `${Math.round(doneCount / total * 100)}%` : '0%' }}
+                />
+              </div>
+              {/* Current exercise */}
+              {liveActiveEx ? (
+                <div className="flex items-center gap-2.5">
+                  <div className="w-6 h-6 rounded-md bg-accent/15 flex items-center justify-center shrink-0">
+                    <ChevronUp size={12} className="text-accent rotate-90" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-txt truncate">{liveActiveEx.name}</p>
+                    <p className="text-[10px] text-txt3 mt-0.5">
+                      Serie {liveActiveEx.setNum} de {liveActiveEx.totalSets}
+                    </p>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    {Array.from({ length: liveActiveEx.totalSets }).map((_, i) => (
+                      <span key={i} className={`w-1.5 h-1.5 rounded-full ${i < liveActiveEx.setNum - 1 ? 'bg-accent' : i === liveActiveEx.setNum - 1 ? 'bg-accent animate-pulse' : 'bg-border'}`} />
+                    ))}
+                  </div>
+                </div>
+              ) : current ? (
+                <div className="flex items-center gap-2.5">
+                  <div className="w-6 h-6 rounded-md bg-accent/15 flex items-center justify-center shrink-0">
+                    <ChevronUp size={12} className="text-accent rotate-90" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-txt truncate">{current.exercise_name}</p>
+                    <p className="text-[10px] text-txt3 mt-0.5">
+                      {blockLabel}{isTimed
+                        ? ` · ${current.duration_seconds >= 60 ? Math.round(current.duration_seconds / 60) + ' min' : current.duration_seconds + 's'}`
+                        : current.sets && current.reps ? ` · ${current.sets}×${current.reps}${current.weight_kg ? ' · ' + current.weight_kg + 'kg' : ''}` : ''}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-txt3">Todos los ejercicios completados</p>
+              )}
+            </motion.button>
+          </div>
+        );
+      })()}
 
       {/* Today's workout */}
       <div className="section">

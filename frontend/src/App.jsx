@@ -40,6 +40,8 @@ export default function App() {
   const [activeScreen,  setActiveScreen]  = useState('home');
   const [activeSession,  setActiveSession]  = useState(null);
   const [modalVisible,   setModalVisible]   = useState(false);
+  const [liveCompleted,  setLiveCompleted]  = useState(null); // Set<exerciseId> | null
+  const [liveActiveEx,   setLiveActiveEx]   = useState(null); // { id, name, setNum, totalSets } | null
   const [clock,         setClock]         = useState(getTime());
 
   useEffect(() => {
@@ -157,7 +159,7 @@ export default function App() {
                       <motion.div key={id} className="screen" style={{ opacity: 1, pointerEvents: 'all' }}
                         variants={pageVariants} initial="initial" animate="animate" exit="exit"
                       >
-                        <Screen onStartWorkout={s => { setActiveSession(s); setModalVisible(true); }} onNavigate={setActiveScreen} isTrainer={isTrainer} />
+                        <Screen onStartWorkout={s => { setActiveSession(s); setModalVisible(true); setLiveCompleted(new Set((s.session_exercises ?? []).filter(e => e.completed).map(e => e.id))); }} onNavigate={setActiveScreen} isTrainer={isTrainer} runningSession={activeSession} onResumeWorkout={() => setModalVisible(true)} liveCompleted={liveCompleted ?? new Set()} liveActiveEx={liveActiveEx} />
                       </motion.div>
                     );
                   })}
@@ -217,8 +219,10 @@ export default function App() {
                     session={activeSession}
                     visible={modalVisible}
                     hasWearable={profile?.wearables?.some(w => w.connected)}
-                    onClose={() => { setActiveSession(null); setModalVisible(false); }}
+                    onClose={() => { setActiveSession(null); setModalVisible(false); setLiveCompleted(null); setLiveActiveEx(null); }}
                     onMinimize={() => setModalVisible(false)}
+                    onExerciseDone={id => setLiveCompleted(prev => { const s = new Set(prev); s.add(id); return s; })}
+                    onActiveExChange={setLiveActiveEx}
                   />
                 )}
               </>

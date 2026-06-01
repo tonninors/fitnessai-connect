@@ -11,7 +11,7 @@ const BLOCK_META  = {
   cooldown: { label: 'Estiramiento',  colorClass: 'text-blue',        bgClass: 'bg-blue/10',        borderClass: 'border-l-blue' },
 };
 
-export default function WorkoutModal({ session, visible = true, hasWearable, onClose, onMinimize }) {
+export default function WorkoutModal({ session, visible = true, hasWearable, onClose, onMinimize, onExerciseDone, onActiveExChange }) {
   const [hr,           setHr]           = useState(null);
   const [calories,     setCalories]     = useState(0);
   const [seconds,      setSeconds]      = useState(0);
@@ -105,6 +105,8 @@ export default function WorkoutModal({ session, visible = true, hasWearable, onC
     startTimer();
     setActiveExId(ex.id);
     setActiveSetNum(1);
+    const totalSets = ex.sets ?? (ex.exercise_type === 'strength' ? 3 : 1);
+    onActiveExChange?.({ id: ex.id, name: ex.exercise_name, setNum: 1, totalSets });
   }
 
   // Terminar una serie del ejercicio activo
@@ -117,11 +119,14 @@ export default function WorkoutModal({ session, visible = true, hasWearable, onC
       setActiveExId(null);
       setActiveSetNum(1);
       setCompletedEx(prev => { const s = new Set(prev); s.add(ex.id); return s; });
+      onExerciseDone?.(ex.id);
+      onActiveExChange?.(null);
       await api.patch(`/workouts/sessions/${session.id}/exercises/${ex.id}/toggle`, { completed: true }).catch(console.error);
     } else {
       // Todavía quedan series → descanso y avanzar contador
       const next = activeSetNum + 1;
       setActiveSetNum(next);
+      onActiveExChange?.({ id: ex.id, name: ex.exercise_name, setNum: next, totalSets });
       if (ex.rest_seconds > 0) startRest(ex.rest_seconds, next, totalSets);
     }
   }
