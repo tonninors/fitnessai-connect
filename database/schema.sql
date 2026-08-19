@@ -106,6 +106,10 @@ CREATE TABLE session_exercises (
   reps_range      TEXT,    -- ej: "8-12"
   weight_kg       DECIMAL(6,2),
   rest_seconds    INT,
+  -- Bloque al que pertenece el ejercicio dentro de la sesion.
+  exercise_type    TEXT     DEFAULT 'strength' CHECK (exercise_type IN ('warmup','strength','cardio','cooldown')),
+  -- Duracion para ejercicios por tiempo (movilidad, cardio, estiramientos).
+  duration_seconds INT,
   completed       BOOLEAN  DEFAULT FALSE,
   notes           TEXT
 );
@@ -118,7 +122,9 @@ CREATE TABLE session_sets (
   reps_actual          INT,
   weight_actual_kg     DECIMAL(6,2),
   completed            BOOLEAN  DEFAULT FALSE,
-  logged_at            TIMESTAMPTZ DEFAULT NOW()
+  logged_at            TIMESTAMPTZ DEFAULT NOW(),
+  -- Requerido por el upsert de POST /workouts/.../sets (onConflict).
+  UNIQUE(session_exercise_id, set_number)
 );
 
 -- ── PROGRESS METRICS ─────────────────────────────────────────
@@ -226,8 +232,51 @@ CREATE POLICY "own session_sets" ON session_sets FOR ALL
     WHERE se.id = session_exercise_id AND ws.user_id = auth.uid()
   ));
 
--- ── MIGRACIONES (si ya existe el schema, correr solo esto) ──
--- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN DEFAULT FALSE;
+-- ── ÍNDICES ──────────────────────────────────────────────────
+-- Sin estos índices, cada consulta del dashboard hacía un seq scan sobre
+-- workout_sessions. Cubren los filtros reales del backend.
+CREATE INDEX IF NOT EXISTS idx_sessions_user_date     ON workout_sessions (user_id, scheduled_date);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_status   ON workout_sessions (user_id, status);
+CREATE INDEX IF NOT EXISTS idx_sessions_completed_at  ON workout_sessions (user_id, completed_at) WHERE status = 'completed';
+CREATE INDEX IF NOT EXISTS idx_sessions_plan          ON workout_sessions (plan_id);
+CREATE INDEX IF NOT EXISTS idx_plans_user_status      ON workout_plans (user_id, status);
+CREATE INDEX IF NOT EXISTS idx_session_exercises_sess ON session_exercises (session_id, order_num);
+CREATE INDEX IF NOT EXISTS idx_session_sets_exercise  ON session_sets (session_exercise_id);
+CREATE INDEX IF NOT EXISTS idx_metrics_user_date      ON progress_metrics (user_id, metric_date DESC);
+CREATE INDEX IF NOT EXISTS idx_insights_user_created  ON ai_insights (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_profiles_trainer       ON profiles (trainer_id);
+CREATE INDEX IF NOT EXISTS idx_messages_pair          ON messages (sender_id, receiver_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_messages_receiver      ON messages (receiver_id, created_at DESC);
+
+-- ── MIGRACIONES ──────────────────────────────────────────────
+-- Ejecutar SOLO este bloque si la base de datos ya existe.
+-- Es idempotente: se puede correr varias veces sin efectos.
+
+-- 1. Onboarding (ya existente en instalaciones anteriores).
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN DEFAULT FALSE;
+
+-- 2. Bloques del entrenamiento. El backend y el WorkoutModal dependen de estas
+--    dos columnas; faltaban en el schema versionado.
+ALTER TABLE session_exercises
+  ADD COLUMN IF NOT EXISTS exercise_type TEXT DEFAULT 'strength';
+ALTER TABLE session_exercises
+  ADD COLUMN IF NOT EXISTS duration_seconds INT;
+UPDATE session_exercises SET exercise_type = 'strength' WHERE exercise_type IS NULL;
+
+-- 3. Clave única que necesita el upsert de series
+--    (POST /api/workouts/sessions/:s/exercises/:e/sets). Sin ella el endpoint
+--    fallaba con "there is no unique or exclusion constraint matching...".
+--    Primero se eliminan duplicados, si los hubiera.
+DELETE FROM session_sets a
+  USING session_sets b
+  WHERE a.id < b.id
+    AND a.session_exercise_id = b.session_exercise_id
+    AND a.set_number = b.set_number;
+ALTER TABLE session_sets
+  DROP CONSTRAINT IF EXISTS session_sets_session_exercise_id_set_number_key;
+ALTER TABLE session_sets
+  ADD CONSTRAINT session_sets_session_exercise_id_set_number_key
+  UNIQUE (session_exercise_id, set_number);
 
 -- ── AUTO-CREATE PROFILE ON SIGNUP ───────────────────────────
 CREATE OR REPLACE FUNCTION handle_new_user()

@@ -6,188 +6,198 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 FitnessAI Connect: a LATAM fitness-tech platform connecting personal trainers with users. Features AI-generated workout plans (Groq/LLaMA), real-time coach↔user chat (Supabase Realtime), wearable integration, and a live workout session modal. Target market: Spanish-speaking users in Mexico, Argentina, Colombia.
 
+All user-facing copy is in Spanish. Code comments in this repo are in Spanish too — match that.
+
 ---
 
 ## Development commands
 
 ```bash
 # Both servers at once — from repo root
-npm run dev        # concurrently runs backend (port 3000) + frontend (port 5173)
+npm run dev          # concurrently runs backend (port 3000) + frontend (port 5173)
+npm run install:all  # installs root + backend + frontend deps
 
 # Backend only — from /backend
-npm run dev        # nodemon + --env-file=.env on http://localhost:3000 (also loads via dotenv in server.js)
+npm run dev          # nodemon + --env-file=.env on http://localhost:3000
 
 # Frontend only — from /frontend
-npm run dev        # Vite on http://localhost:5173
-# Vite proxies /api/* → localhost:3000 (see vite.config.js)
+npm run dev          # Vite on http://localhost:5173 (proxies /api/* → :3000)
+
+# Build
+npm run build        # vite build → frontend/dist
+
+# Tests (from repo root)
+npm test              # backend + frontend
+npm run test:backend
+npm run test:frontend
+npm run test:unit         # pure logic on both sides
+npm run test:integration  # supertest against the real Express app
+npm run test:components   # React Testing Library
+npm run test:coverage
+npm run test:watch
 
 # On Windows: use cmd, not PowerShell (ExecutionPolicy may block npm)
 ```
 
-No test runner or linter is configured in this project.
+No linter or type-checker is configured.
+
+---
+
+## Testing
+
+Vitest on both sides. **Every change to business logic must come with a test.** When refactoring untested code, write characterization tests first.
+
+**Backend** (`backend/tests/`)
+- `tests/unit/` — pure functions from `backend/lib/`.
+- `tests/integration/` — Supertest against `createApp()`. Supabase and Groq are replaced by doubles via `setSupabaseClient()` / `setGroqClient()`; **no test touches a real service**.
+- `tests/helpers/supabase-mock.js` reproduces the chainable PostgREST builder and records every query in `client.queries`, so tests can assert that a query filtered by `user_id`.
+- `tests/helpers/test-app.js` — `createTestApp({ resolver, groqReply })` returns `{ app, supabase, groq, restore }`. Call `restore()` in `afterEach`.
+- Coverage thresholds: 75% lines/functions/statements, 70% branches.
+
+**Frontend** (`*.test.js(x)` next to the source)
+- Mock the API layer with `vi.mock('../api/client.js', ...)` and then `await import()` the component (the real `client.js` calls `createClient` at module load).
+- Test data comes from `src/tests/factories.js` — realistic Spanish content, never `foo`/`bar`.
+- `AnimatePresence` delays mounts: use `findBy*` / `waitFor` after any step or block transition, not `getBy*`.
+- Coverage thresholds: 60% lines/functions/statements, 65% branches.
 
 ---
 
 ## Architecture
 
-### Frontend routing (no React Router)
-`App.jsx` manages all screen navigation via a single `activeScreen` state string. There is no URL-based routing — screens are conditionally rendered with a switch. The onboarding gate checks `profile?.onboarding_completed` and redirects before any screen renders.
+### Backend
 
-Auth flow: `supabase.auth.onAuthStateChange()` → fetch profile → detect trainer role (`isTrainer`) → gate app render until profile loads. When `authEvent === 'PASSWORD_RECOVERY'` fires, `App.jsx` forces `activeScreen = 'resetPassword'` before the normal gate, rendering `ResetPassword.jsx` which handles the OTP confirmation and new-password submission.
+`server.js` only loads the env, validates that `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` exist and calls `listen`. The app itself is built by **`createApp()` in `app.js`** so tests can mount it without opening a port. Keep it that way.
 
-Trainer role: `isTrainer` is set to `true` when the profile row has a matching entry in `trainer_profiles`. When `isTrainer=true`, `DashboardCoach.jsx` is accessible as `activeScreen === 'coach'`. It is not in the main nav array — navigation to it must be added conditionally. Regular users never see this screen.
+`config/supabase.js` exposes a **single lazily-created `service_role` client** via `getSupabase()`. Do not call `createClient` inside a route file.
 
-**No custom hooks or utils layer** — all logic is inline in screen components (`frontend/src/screens/`). There is no `hooks/` or `utils/` directory. Extract only when a pattern repeats across ≥3 screens.
+**`backend/lib/` holds all pure, testable logic.** Route handlers should read as: validate input → call `lib/` → query Supabase → respond.
+
+| Module | Responsibility |
+|--------|----------------|
+| `dates.js` | ISO date arithmetic (UTC-based, deterministic), week ranges, `todayISO()` |
+| `streak.js` | `computeStreak()`, level and level name |
+| `progress.js` | `buildWeeklyChart()`, monthly totals, ring percentages |
+| `plan.js` | AI plan prompt, `extractJsonObject()`, `validatePlan()`, row mappers |
+| `insights.js` | Insight prompts and `toDbInsightType()` |
+| `groq.js` | Lazy Groq client, retry on 429, error → `HttpError` |
+| `validation.js` | Input validators that throw `HttpError(400)` |
+| `http.js` | `HttpError`, `asyncHandler`, `throwOnSupabaseError` |
+
+**Error handling contract:** every handler is wrapped in `asyncHandler`. Throw `HttpError` (or use `badRequest`/`forbidden`/`notFound`) instead of returning ad-hoc `res.status(...)`. `app.js` renders 4xx messages verbatim and hides 5xx details in production. Never `return res.status(400).json({ error: error.message })` with a raw Postgres message.
+
+**Authorization:** any write that targets a session or exercise must go through `assertSessionOwnership()` / `assertExerciseInSession()` in `routes/workouts.js`. Because the backend uses `service_role`, RLS does **not** protect these endpoints — the explicit check is the only barrier.
+
+**Timezone:** `APP_TIMEZONE` (default `UTC`) decides what "today" means server-side. All date math uses string arithmetic in `lib/dates.js`; never `new Date('YYYY-MM-DD').getDay()`.
+
+### Frontend
+
+**Navigation** — no React Router. `App.jsx` keeps `activeScreen` and conditionally renders. The onboarding gate (`profile?.onboarding_completed`) runs before anything else. `PASSWORD_RECOVERY` from `onAuthStateChange` forces `ResetPassword`.
+
+`Progress` and `DashboardCoach` are `React.lazy` — Recharts is ~340 kB and must stay out of the initial bundle. Keep new heavy screens lazy too.
+
+**Trainer role** — `isTrainer` is true when a `trainer_profiles` row matches the user id. `DashboardCoach` is reachable as `activeScreen === 'coach'`; it is not in the `NAV` array.
+
+**`src/lib/`** holds pure logic shared by ≥3 screens:
+- `dates.js` — parse/format `YYYY-MM-DD` **in local time**. Never pass those strings to `new Date()` directly: it parses as UTC midnight and shifts the weekday in every American timezone.
+- `workout.js` — `BLOCK_ORDER`, `BLOCK_META`, `exerciseType()` (falls back to `strength`), `groupByBlock()`, `totalSets()`, `formatTimer()`, `estimateCalories()`.
+
+**`src/hooks/useApiData.js`** — the standard way to load a screen: returns `{ data, setData, loading, error, reload }`. Screens render a skeleton while loading and `<ErrorState onRetry={reload} />` on failure. Never `.catch(console.error)` and render `null`.
 
 ### API layer (`frontend/src/api/client.js`)
-Every HTTP call goes through this wrapper. It fetches a fresh Supabase session token on **each request** (not cached) and injects it as `Authorization: Bearer <token>`. No request-level caching.
 
-### Backend auth (`backend/middleware/auth.js`)
-Uses `service_role` key to call `supabase.auth.getUser(token)`. Attaches `req.user` (Supabase user object) and `req.supabase` (client instance) to every request. No separate DB lookup for user identity — trusts the JWT.
-
-### Supabase client instantiation
-Each route file (`home.js`, `workouts.js`, etc.) creates its own Supabase client with `service_role`. There is no shared singleton.
+Every HTTP call goes through this wrapper. It fetches a fresh Supabase session token on **each request** (never cached), applies a 30 s timeout, and turns network/timeout/non-JSON failures into Spanish `Error` messages carrying `.status`.
 
 ### AI integration (`backend/routes/ai.js`)
-Model: **Groq LLaMA 4 Scout** (id: `meta-llama/llama-4-scout-17b-16e-instruct`). Two endpoints:
-- `POST /ai/insight` — type-based prompts (recovery, workout_ready, etc.), auto-retry on 429 with exponential backoff (2s → 5s)
-- `POST /ai/generate-plan` — generates a 4-week plan as JSON; parses with regex (`text.match(/\{[\s\S]*\}/)`); archives previous active plan before creating new one. Session+exercise inserts run in parallel with `Promise.all`. Accepts `cardio_minutes` param (0 = no cardio block).
 
-**Exercise structure generated:** 4 blocks per session — `warmup` (3 mobility exercises, `duration_seconds`, `sets:1`), `strength` (5-7 exercises, compound-first order), `cardio` (1 exercise, `duration_seconds`, skipped if `cardio_minutes=0`), `cooldown` (3 stretches, `duration_seconds`, `sets:1`). Rest times: heavy compounds (squat/deadlift/bench) → 180s, secondary compounds → 90-120s, isolations → 60s. Cardio intensity is periodized by goal (fat loss = moderate-intense, muscle gain = light).
+Model: **Groq LLaMA 4 Scout** (`meta-llama/llama-4-scout-17b-16e-instruct`).
 
-Currently only generates week 1 — weeks 2–12 are a P1 pending feature. See `COMPONENTES-PENDIENTES.md` for the full roadmap.
+- `POST /ai/insight` — type-based prompts; the DB insert is fire-and-forget but logs failures. `toDbInsightType()` maps prompt types to the values allowed by the `ai_insights.type` CHECK.
+- `POST /ai/generate-plan` — generates week 1 as JSON. Order matters: **validate → insert the new plan → archive the old ones**. Archiving first left users with no active plan when the insert failed.
 
-After generating an insight, the DB insert happens **fire-and-forget** (async, after response is sent).
+Generated session structure: 4 blocks — `warmup` (3 mobility, `duration_seconds`, `sets:1`), `strength` (compound-first), `cardio` (skipped when `cardio_minutes=0`), `cooldown` (3 stretches). Rest: heavy compounds 150-180 s, secondary 90-120 s, isolations 60 s.
 
-### Workout streak logic (`backend/routes/workouts.js`)
-`updateStreak()` checks if the user completed a session **yesterday** (not today). Streak resets to 1 if no yesterday session. Level = `Math.floor(streak / 10) + 1`.
-
-### Home dashboard (`backend/routes/home.js`)
-Returns `today_session` (scheduled for today, not skipped) OR `next_session` (first pending session from active plan, if no today session). Uses `workout_plans!inner(status)` join to filter by active plans only. All queries run in a single `Promise.all`.
+Weeks 2–12 are still pending — see `COMPONENTES-PENDIENTES.md`.
 
 ### Backend endpoint reference
 
 | Method | Path | Auth | Notes |
-|--------|------|------|-------|
-| GET | `/health` | — | Status check |
-| POST | `/auth/signup` | — | Email/password registration |
-| POST | `/auth/signin` | — | Returns Supabase session |
-| POST | `/auth/signout` | ✓ | Invalidates session |
-| POST | `/auth/check-email` | — | Email existence check |
-| POST | `/auth/reset-password` | — | Sends OTP via `resetPasswordForEmail()` |
-| GET | `/home` | ✓ | Dashboard: today_session or next_session, activity rings, HRV, insights (single `Promise.all`) |
-| GET | `/workouts/plan` | ✓ | Active plan with sessions + exercises |
-| GET | `/workouts/upcoming` | ✓ | Next 5 pending sessions |
-| POST | `/workouts/sessions/:id/start` | ✓ | Mark session `in_progress` |
-| PATCH | `/workouts/sessions/:id/complete` | ✓ | Close session + update streak |
-| PATCH | `/workouts/sessions/:sessionId/exercises/:exerciseId/toggle` | ✓ | Mark exercise done |
-| POST | `/workouts/sessions/:sessionId/exercises/:exerciseId/sets` | ✓ | Upsert set (reps, weight) |
-| GET | `/progress/stats` | ✓ | Monthly stats (sessions, volume kg, avg RPE, active days) |
-| GET | `/progress/chart` | ✓ | Weekly volume for Recharts; `period` param: `4w`/`3m`/`1y` |
-| POST | `/progress/metrics` | ✓ | Upsert daily body metrics (weight, HRV, sleep, body fat, etc.) |
-| GET | `/progress/metrics` | ✓ | Metric history (default 30 days) |
-| GET | `/profile` | ✓ | Full profile + wearable connections + session count |
-| PATCH | `/profile` | ✓ | Update whitelisted fields only |
-| POST | `/profile/wearables` | ✓ | Upsert wearable connection |
-| DELETE | `/profile/wearables/:platform` | ✓ | Disconnect wearable |
-| POST | `/ai/insight` | ✓ | Generate contextual insight; auto-retry on 429 (2s → 5s backoff) |
-| POST | `/ai/generate-plan` | ✓ | Generate week-1 plan as JSON; archives previous active plan |
+|--------|------|:----:|-------|
+| GET | `/health` | — | Outside the rate limiter |
+| POST | `/api/auth/check-email` | — | Paginated lookup; enumerates accounts by design (rate-limited) |
+| GET | `/api/home` | ✓ | today_session or next_session, rings, HRV, insight, week strip |
+| GET | `/api/workouts/plan` | ✓ | Active plan with sessions + exercises |
+| GET | `/api/workouts/upcoming` | ✓ | Next 5 pending sessions |
+| POST | `/api/workouts/sessions/:id/start` | ✓ | Mark `in_progress` |
+| PATCH | `/api/workouts/sessions/:id/complete` | ✓ | Close session + recalc streak |
+| PATCH | `/api/workouts/sessions/:sid/exercises/:eid/toggle` | ✓ | Mark exercise done |
+| POST | `/api/workouts/sessions/:sid/exercises/:eid/sets` | ✓ | Upsert set (ownership-checked) |
+| GET | `/api/progress/stats` | ✓ | Monthly stats + streak |
+| GET | `/api/progress/chart` | ✓ | `period`: `4w`/`3m`/`1y` |
+| POST/GET | `/api/progress/metrics` | ✓ | Daily body metrics; `days` is 1-365 |
+| GET/PATCH | `/api/profile` | ✓ | PATCH honours a strict whitelist |
+| POST/DELETE | `/api/profile/wearables[/:platform]` | ✓ | Platform validated against a closed set |
+| POST | `/api/ai/insight` | ✓ | 429 with backoff, 502 on provider failure |
+| POST | `/api/ai/generate-plan` | ✓ | Week-1 plan |
 
-### Auth routes (`backend/routes/auth.js`)
-Handles email/password sign-up, sign-in, sign-out, and password recovery (OTP flow). Delegates to Supabase Auth — no custom JWT minting. Password reset sends an OTP via `supabase.auth.resetPasswordForEmail()`.
-
-### Progress (`backend/routes/progress.js`)
-See endpoint table above. The `user_monthly_stats` DB view aggregates monthly workouts, calories, and volume.
-
-### Rate limiting (`backend/server.js`)
-`express-rate-limit`: 15-min window, max **100 req** in production / **1000 req** in development. Applied globally before all routes.
+There are **no** `/auth/signup`, `/auth/signin`, `/auth/signout` or `/auth/reset-password` endpoints — the frontend talks to Supabase Auth directly.
 
 ---
 
 ## Key patterns to follow
 
-**Screen/modal patterns:**
-- All screens use `.screen` CSS class; active screen controlled by `activeScreen` state in `App.jsx`
-- Modals use `.modal-overlay` + `.modal-sheet` (bottom sheet pattern)
-- Mobile-first: design for 390×844px (iPhone 14 Pro)
-- WorkoutModal has two visibility states in `App.jsx`: `activeSession` (session object or null) + `modalVisible` (boolean). Minimizing sets `modalVisible=false` but keeps `activeSession` alive — the timer persists. A mini bar renders above the bottom nav when `activeSession && !modalVisible`; tapping it restores the modal.
+**Screens and modals**
+- Screens use `.screen`; modals use `.modal-overlay` + `.modal-sheet` (bottom sheet).
+- Mobile-first at 390×844; under 460 px the phone frame collapses to full screen.
+- `WorkoutModal` has two states in `App.jsx`: `activeSession` (object or null) and `modalVisible` (boolean). Minimizing sets `modalVisible=false` but keeps the component mounted so the timer survives. A mini "En vivo" bar renders above the bottom nav.
 
-**WorkoutModal exercise flow:**
-- Exercises are grouped into 4 ordered blocks: `warmup → strength → cardio → cooldown`. Only the current block's exercises are shown; a "Siguiente fase" button advances to the next block when all exercises in the current block are done.
-- Timer starts on first exercise interaction, not on modal open.
-- Tapping an exercise row marks it as *active* (in-progress). A focus card appears showing: image placeholder (ready for `ex.image_url`), exercise name, weight, reps, set progress bars, and a CTA button.
-- For strength exercises: each tap of "Serie lista" logs one set and starts the inter-set rest timer; the last set shows "Terminar ejercicio" and marks it complete.
-- For timed exercises (warmup/cooldown/cardio): single "Terminar" tap — no set loop.
-- `sets` fallback: `ex.sets ?? (exercise_type === 'strength' ? 3 : 1)` — never relies on a null sets field.
-- Global metrics (FC/KCAL/TIME) collapse to a compact inline strip while an exercise is active; they expand back to full cards when no exercise is active.
+**WorkoutModal flow**
+- Exercises are grouped into `warmup → strength → cardio → cooldown` via `groupByBlock()`. Only the current block is visible; "Siguiente fase" appears when the block is done.
+- The timer starts on the first exercise interaction, not on open. It uses wall-clock (`Date.now() - startTimeRef.current`) — never increment a counter with `setInterval`.
+- Strength: each "Serie N lista" logs a set and starts the rest timer; the last set completes the exercise. Timed exercises (warmup/cooldown/cardio): a single "Terminar".
+- Calories come from `estimateCalories()` in `lib/workout.js` (RPE-scaled kcal/min), not an ad-hoc formula.
+- If `hasWearable` is false, HR shows `—`. Never simulate HR without a wearable.
 
-**Style system (in `frontend/src/index.css`, Tailwind v4 `@theme` block):**
+**Accessibility (non-negotiable)**
+- Anything clickable is a `<button type="button">`, never a `<div onClick>`.
+- Toggles use `role="switch"` + `aria-checked`; selectable chips use `aria-pressed`; radio groups use `role="radiogroup"`/`role="radio"`.
+- Every input has a `<label htmlFor>`. Modals carry `role="dialog"` + `aria-modal` and close on Escape.
+- Decorative icons get `aria-hidden="true"`; icon-only buttons get `aria-label`.
+- Icons come from lucide-react. No emoji in the UI.
+
+**Style system** (`frontend/src/index.css`, Tailwind v4 `@theme`)
+
 ```css
---color-bg:        #0D0D0D   /* page background */
---color-surface:   #1A1A1A   /* card/panel background */
---color-surface2:  #222222   /* secondary surface */
---color-border:    #2A2A2A   /* subtle borders */
---color-accent:    #FF5733   /* orange — primary action color */
---color-accent-dim: rgba(255,87,51,0.12)
---color-green:     #4CAF50   /* success, streaks */
---color-green-dim: rgba(76,175,80,0.12)
---color-blue:      #60a5fa   /* info metrics */
---color-blue-dim:  rgba(96,165,250,0.12)
---color-txt:       #FFFFFF   /* primary text */
---color-txt2:      #888888   /* secondary text */
---color-txt3:      #555555   /* tertiary text */
---font-body:       'Inter'
---font-metric:     'Barlow Condensed'  /* large numbers, stats */
+--color-bg:        #0D0D0D   --color-accent:     #FF5733
+--color-surface:   #1A1A1A   --color-accent-dim: rgba(255,87,51,0.12)
+--color-surface2:  #222222   --color-green:      #4CAF50
+--color-border:    #2A2A2A   --color-blue:       #60a5fa
+--color-txt:       #FFFFFF   --color-txt2:       #888888   --color-txt3: #555555
+--font-body:       'Inter'   --font-metric:      'Barlow Condensed'
 ```
-- Dark theme with `#1A1A1A` cards, `1px solid #2A2A2A` borders, no box-shadows
-- Style reference: "Nike Training Club meets Strong app"
-- Uses Tailwind CSS v4 via `@tailwindcss/vite` plugin + `@theme` block for custom tokens
-- Framer-motion for page transitions (AnimatePresence), card entrances, ring fill, nav indicator
-- Recharts for weekly volume chart (AreaChart with orange gradient)
-- Lucide-react for all icons (no emoji icons in UI)
 
-**Data patterns:**
-- Use realistic Spanish-language data for any exercise/user content (not placeholder text)
-- Supabase queries use nested selects for relationships: e.g., `trainer_profiles(full_name, rating)`
-- Use upsert with `onConflict` for idempotent writes (see sets endpoint in `workouts.js`)
+Dark theme, `1px solid #2A2A2A` borders, no box-shadows. Reference: "Nike Training Club meets Strong app". Framer Motion for transitions, Recharts for the weekly volume chart.
 
-**WorkoutModal wearable detection:**
-- If `hasWearable=true`: simulates HR with sine wave oscillation
-- If false: HR displays as `—` (never simulate HR without wearable)
-- Timer uses wall-clock (`Date.now() - startTimeRef.current`) to avoid drift when the tab is in background. Never use `setInterval` to increment a counter for elapsed time.
-
-**Profile updates (`backend/routes/profile.js`):**
-- Only a whitelisted set of fields is accepted in PATCH — do not bypass this
+**Data**
+- Use realistic Spanish content for exercises and users — never placeholder text.
+- Nested selects for relationships: `trainer_profiles(full_name, rating)`.
+- Idempotent writes use `upsert` with `onConflict` (see the sets endpoint).
+- When selecting `session_exercises`, always include `exercise_type`, `duration_seconds` and `order_num` — the block flow breaks without them.
 
 ---
 
 ## Environment variables
 
-**Backend (`backend/.env`):**
-```
-SUPABASE_URL=
-SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=
-GROQ_API_KEY=
-PORT=3000
-FRONTEND_URL=http://localhost:5173
-NODE_ENV=development
-```
+**Backend (`backend/.env`)** — `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `GROQ_API_KEY`, `PORT`, `FRONTEND_URL` (comma-separated list allowed), `NODE_ENV`, optional `APP_TIMEZONE`, optional `GROQ_RETRY_DELAYS_MS`.
 
-**Frontend (`frontend/.env`):**
-```
-VITE_SUPABASE_URL=
-VITE_SUPABASE_ANON_KEY=
-VITE_API_URL=http://localhost:3000/api
-```
-
-Note: `VITE_API_URL` is used in production; in dev, Vite's proxy handles `/api` routes so CORS is not needed.
+**Frontend (`frontend/.env`)** — `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_URL` (production only; dev uses the Vite proxy).
 
 ---
 
 ## Database
 
-Schema at `database/schema.sql`. 11 tables + 1 view, RLS enabled on all. Key notes:
-- Trigger auto-creates a `profiles` row on signup
-- 15 seed exercises in Spanish
-- Backend enforces user scoping via `req.user.id` in queries (not via RLS on service_role calls)
+Schema at `database/schema.sql`: 11 tables + 1 view, RLS on all, indexes on the hot paths, and an idempotent **MIGRACIONES** block at the end for existing installations.
+
+- A trigger auto-creates a `profiles` row on signup; 15 seed exercises in Spanish.
+- `session_exercises` carries `exercise_type` and `duration_seconds`.
+- `session_sets` has `UNIQUE(session_exercise_id, set_number)` — the sets upsert depends on it.
+- The backend scopes every query by `req.user.id`; RLS only guards direct client access, since the API uses `service_role`.

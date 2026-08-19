@@ -1,35 +1,43 @@
-import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Play, Check, Sparkles, ChevronRight, Calendar, CheckCircle, ChevronUp } from 'lucide-react';
+import { Play, Check, Sparkles, ChevronRight, Calendar, ChevronUp } from 'lucide-react';
 import { api } from '../api/client.js';
+import { useApiData } from '../hooks/useApiData.js';
+import ErrorState from '../components/ErrorState.jsx';
+import { todayISO, weekDays, formatDate, WEEKDAY_INITIALS } from '../lib/dates.js';
+import {
+  BLOCK_META,
+  exerciseType,
+  isTimed,
+  totalSets,
+  nextPendingExercise,
+  completionPercent,
+  formatDuration,
+} from '../lib/workout.js';
 
-const BLOCK_ORDER = ['warmup', 'strength', 'cardio', 'cooldown'];
-const BLOCK_LABEL = { warmup: 'Calentamiento', strength: 'Entrenamiento', cardio: 'Cardio', cooldown: 'Estiramiento' };
+export default function Home({
+  onStartWorkout,
+  onNavigate,
+  runningSession,
+  onResumeWorkout,
+  liveCompleted,
+  liveActiveEx,
+}) {
+  const { data, loading, error, reload } = useApiData(() => api.get('/home'));
 
-export default function Home({ onStartWorkout, onNavigate, runningSession, onResumeWorkout, liveCompleted, liveActiveEx }) {
-  const [data,    setData]    = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    api.get('/home').then(setData).catch(console.error).finally(() => setLoading(false));
-  }, []);
-
-  if (loading) return (
-    <div className="p-5 pt-2">
-      <div className="mb-5">
-        <div className="skeleton h-2.5 w-20 mb-2.5" />
-        <div className="skeleton h-9 w-40 mb-3" />
-        <div className="skeleton h-[3px] w-10" />
-      </div>
-      <div className="skeleton h-48 rounded-2xl mb-2.5" />
-      <div className="skeleton h-36 rounded-2xl mb-2.5" />
-      <div className="skeleton h-14 rounded-2xl" />
-    </div>
-  );
-  if (!data)   return null;
+  if (loading) return <HomeSkeleton />;
+  if (error) {
+    return (
+      <ErrorState
+        title="No se pudo cargar tu inicio"
+        message={error}
+        onRetry={reload}
+      />
+    );
+  }
+  if (!data) return null;
 
   const { greeting, profile, today_session, next_session, ai_insight, activity_rings, hrv, week_sessions } = data;
-  const today     = new Date().toISOString().split('T')[0];
+  const today = todayISO();
   const firstName = profile?.full_name?.split(' ')[0] ?? 'Usuario';
   const rings = [
     { label: 'Movimiento', pct: activity_rings?.movement ?? 0, color: '#FF5733' },
@@ -39,14 +47,14 @@ export default function Home({ onStartWorkout, onNavigate, runningSession, onRes
 
   return (
     <div>
-      {/* Greeting */}
+      {/* Saludo */}
       <div className="section pb-0">
         <p className="text-[11px] text-txt3 uppercase tracking-widest font-semibold mb-2">{greeting}</p>
         <h1 className="text-[34px] font-extrabold tracking-tighter leading-none mb-3">{firstName}</h1>
         <div className="w-10 h-[3px] bg-accent rounded-full" />
       </div>
 
-      {/* Weekly strip */}
+      {/* Semana */}
       {week_sessions?.length > 0 && (
         <div className="section pt-3 pb-0">
           <WeekStrip sessions={week_sessions} today={today} />
@@ -54,94 +62,27 @@ export default function Home({ onStartWorkout, onNavigate, runningSession, onRes
       )}
 
       {/* Entrenamiento en curso */}
-      {runningSession && (() => {
-        const allEx    = runningSession.session_exercises ?? [];
-        const done     = liveCompleted ?? new Set();
-        const total    = allEx.length;
-        const doneCount = done.size;
-        // Ejercicio actual: el primero pendiente respetando orden de bloques
-        const sorted   = [...allEx].sort((a, b) => {
-          const bi = BLOCK_ORDER.indexOf(a.exercise_type ?? 'strength');
-          const bj = BLOCK_ORDER.indexOf(b.exercise_type ?? 'strength');
-          return bi !== bj ? bi - bj : (a.order_num ?? 0) - (b.order_num ?? 0);
-        });
-        const current  = sorted.find(e => !done.has(e.id));
-        const blockLabel = current ? BLOCK_LABEL[current.exercise_type ?? 'strength'] : null;
-        const isTimed  = current?.duration_seconds != null;
-        return (
-          <div className="section pb-0">
-            <motion.button
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              onClick={onResumeWorkout}
-              className="w-full text-left card border border-accent/30 cursor-pointer hover:border-accent/50 transition-colors !py-3.5"
-            >
-              {/* Header row */}
-              <div className="flex items-center justify-between mb-2.5">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" />
-                  <span className="text-accent text-[10px] font-bold uppercase tracking-wider">En vivo</span>
-                  <span className="text-txt3 text-[10px] mx-1">·</span>
-                  <span className="text-txt3 text-[10px] truncate max-w-[140px]">{runningSession.name}</span>
-                </div>
-                <span className="text-txt3 text-[10px] shrink-0">{doneCount}/{total}</span>
-              </div>
-              {/* Progress bar */}
-              <div className="w-full h-[3px] bg-border rounded-full overflow-hidden mb-3">
-                <div
-                  className="h-full bg-accent rounded-full transition-all duration-500"
-                  style={{ width: total > 0 ? `${Math.round(doneCount / total * 100)}%` : '0%' }}
-                />
-              </div>
-              {/* Current exercise */}
-              {liveActiveEx ? (
-                <div className="flex items-center gap-2.5">
-                  <div className="w-6 h-6 rounded-md bg-accent/15 flex items-center justify-center shrink-0">
-                    <ChevronUp size={12} className="text-accent rotate-90" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-txt truncate">{liveActiveEx.name}</p>
-                    <p className="text-[10px] text-txt3 mt-0.5">
-                      Serie {liveActiveEx.setNum} de {liveActiveEx.totalSets}
-                    </p>
-                  </div>
-                  <div className="flex gap-1 shrink-0">
-                    {Array.from({ length: liveActiveEx.totalSets }).map((_, i) => (
-                      <span key={i} className={`w-1.5 h-1.5 rounded-full ${i < liveActiveEx.setNum - 1 ? 'bg-accent' : i === liveActiveEx.setNum - 1 ? 'bg-accent animate-pulse' : 'bg-border'}`} />
-                    ))}
-                  </div>
-                </div>
-              ) : current ? (
-                <div className="flex items-center gap-2.5">
-                  <div className="w-6 h-6 rounded-md bg-accent/15 flex items-center justify-center shrink-0">
-                    <ChevronUp size={12} className="text-accent rotate-90" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-txt truncate">{current.exercise_name}</p>
-                    <p className="text-[10px] text-txt3 mt-0.5">
-                      {blockLabel}{isTimed
-                        ? ` · ${current.duration_seconds >= 60 ? Math.round(current.duration_seconds / 60) + ' min' : current.duration_seconds + 's'}`
-                        : current.sets && current.reps ? ` · ${current.sets}×${current.reps}${current.weight_kg ? ' · ' + current.weight_kg + 'kg' : ''}` : ''}
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-xs text-txt3">Todos los ejercicios completados</p>
-              )}
-            </motion.button>
-          </div>
-        );
-      })()}
+      {runningSession && (
+        <div className="section pb-0">
+          <RunningSessionCard
+            session={runningSession}
+            completed={liveCompleted ?? new Set()}
+            activeEx={liveActiveEx}
+            onResume={onResumeWorkout}
+          />
+        </div>
+      )}
 
-      {/* Today's workout */}
+      {/* Entrenamiento de hoy */}
       <div className="section">
         {today_session ? (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
             className="card border-l-[3px] border-l-accent"
           >
-            <div className="flex items-center gap-1.5 text-[10px] text-accent font-semibold uppercase tracking-wider mb-3">
-              <Sparkles size={12} /> Entrenamiento de hoy
-            </div>
+            <p className="flex items-center gap-1.5 text-[10px] text-accent font-semibold uppercase tracking-wider mb-3">
+              <Sparkles size={12} aria-hidden="true" /> Entrenamiento de hoy
+            </p>
             <h2 className="text-xl font-bold mb-1">{today_session.name}</h2>
             <p className="text-xs text-txt3 mb-5">
               {profile?.trainer_profiles ? `${profile.trainer_profiles.full_name} · ` : ''}
@@ -152,50 +93,54 @@ export default function Home({ onStartWorkout, onNavigate, runningSession, onRes
               <Stat val={today_session.estimated_calories ?? '—'} label="Kcal" />
               <Stat val={today_session.rpe_target ?? '—'} label="RPE" />
             </div>
-            <button className="btn btn-primary" onClick={() => onStartWorkout(today_session)}
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => onStartWorkout(today_session)}
               disabled={today_session.status === 'completed'}
             >
               {today_session.status === 'completed'
-                ? <><Check size={16} /> Completado</>
-                : <><Play size={16} fill="white" /> Iniciar entrenamiento</>
-              }
+                ? <><Check size={16} aria-hidden="true" /> Completado</>
+                : <><Play size={16} fill="white" aria-hidden="true" /> Iniciar entrenamiento</>}
             </button>
           </motion.div>
         ) : next_session ? (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-            className="card border-l-[3px] border-l-accent cursor-pointer hover:border-accent/40 transition-colors"
-            onClick={() => onNavigate('plans')}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+            className="card border-l-[3px] border-l-accent"
           >
-            <div className="flex items-center gap-1.5 text-[10px] text-txt3 font-semibold uppercase tracking-wider mb-3">
-              <Calendar size={12} /> Próximo entrenamiento
-            </div>
-            <h2 className="text-xl font-bold mb-1">{next_session.day_order ? `Día ${next_session.day_order}` : next_session.name}</h2>
+            <p className="flex items-center gap-1.5 text-[10px] text-txt3 font-semibold uppercase tracking-wider mb-3">
+              <Calendar size={12} aria-hidden="true" /> Próximo entrenamiento
+            </p>
+            <h2 className="text-xl font-bold mb-1">
+              {next_session.day_order ? `Día ${next_session.day_order}` : next_session.name}
+            </h2>
             <p className="text-xs text-txt3 mb-4">
-              {new Date(next_session.scheduled_date + 'T00:00:00').toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'short' })}
+              {formatDate(next_session.scheduled_date)}
               {next_session.estimated_duration ? ` · ${next_session.estimated_duration} min` : ''}
             </p>
-            <button className="btn btn-surface btn-sm" onClick={() => onNavigate('plans')}>
-              <ChevronRight size={14} /> Ver plan completo
+            <button type="button" className="btn btn-surface btn-sm" onClick={() => onNavigate('plans')}>
+              <ChevronRight size={14} aria-hidden="true" /> Ver plan completo
             </button>
           </motion.div>
         ) : (
           <div className="card flex items-center justify-between gap-4">
             <p className="text-sm text-txt3">Sin plan activo</p>
-            <button className="btn btn-primary btn-sm" onClick={() => onNavigate('plans')}>
-              <Sparkles size={14} /> Generar plan
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => onNavigate('plans')}>
+              <Sparkles size={14} aria-hidden="true" /> Generar plan
             </button>
           </div>
         )}
       </div>
 
-      {/* Activity rings */}
+      {/* Anillos de actividad */}
       <div className="section pt-0">
         <div className="card">
           <p className="text-[10px] text-txt3 uppercase tracking-wider font-semibold mb-5">Actividad de hoy</p>
           <div className="flex justify-around">
             {rings.map(({ label, pct, color }) => (
               <div key={label} className="flex flex-col items-center gap-2.5">
-                <Ring pct={pct} color={color} />
+                <Ring pct={pct} color={color} label={label} />
                 <span className="text-[10px] text-txt3 uppercase tracking-wide">{label}</span>
               </div>
             ))}
@@ -203,11 +148,11 @@ export default function Home({ onStartWorkout, onNavigate, runningSession, onRes
         </div>
       </div>
 
-      {/* AI insight */}
+      {/* Insight de IA */}
       {(ai_insight || hrv) && (
         <div className="section pt-0">
           <div className="card border-l-[3px] border-l-accent flex gap-3 items-start">
-            <Sparkles size={16} className="text-accent shrink-0 mt-0.5" />
+            <Sparkles size={16} className="text-accent shrink-0 mt-0.5" aria-hidden="true" />
             <p className="text-sm text-txt2 leading-relaxed">
               {ai_insight ?? `Tu HRV hoy es ${hrv}. Mantén la intensidad moderada.`}
             </p>
@@ -215,81 +160,170 @@ export default function Home({ onStartWorkout, onNavigate, runningSession, onRes
         </div>
       )}
 
-      {/* Trainer card */}
+      {/* Entrenador */}
       {profile?.trainer_profiles && (
         <div className="section pt-0">
-          <div className="card flex items-center gap-3.5 cursor-pointer" onClick={() => onNavigate('chat')}>
-            <div className="w-11 h-11 rounded-xl bg-accent/20 flex items-center justify-center text-accent font-bold text-lg shrink-0">
+          <button
+            type="button"
+            className="card w-full text-left flex items-center gap-3.5 cursor-pointer"
+            onClick={() => onNavigate('chat')}
+          >
+            <span className="w-11 h-11 rounded-xl bg-accent/20 flex items-center justify-center text-accent font-bold text-lg shrink-0">
               {profile.trainer_profiles.full_name?.[0]}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold truncate">{profile.trainer_profiles.full_name}</div>
-              <div className="text-xs text-txt3 mt-0.5">
+            </span>
+            <span className="flex-1 min-w-0">
+              <span className="block text-sm font-semibold truncate">{profile.trainer_profiles.full_name}</span>
+              <span className="block text-xs text-txt3 mt-0.5">
                 {profile.trainer_profiles.rating} · {profile.trainer_profiles.specialties?.[0]}
-              </div>
-            </div>
-            <ChevronRight size={18} className="text-txt3" />
-          </div>
+              </span>
+            </span>
+            <ChevronRight size={18} className="text-txt3" aria-hidden="true" />
+          </button>
         </div>
       )}
     </div>
   );
 }
 
-function WeekStrip({ sessions, today }) {
-  const DAY_LABELS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+function HomeSkeleton() {
+  return (
+    <div className="p-5 pt-2" aria-busy="true" aria-label="Cargando inicio">
+      <div className="mb-5">
+        <div className="skeleton h-2.5 w-20 mb-2.5" />
+        <div className="skeleton h-9 w-40 mb-3" />
+        <div className="skeleton h-[3px] w-10" />
+      </div>
+      <div className="skeleton h-48 rounded-2xl mb-2.5" />
+      <div className="skeleton h-36 rounded-2xl mb-2.5" />
+      <div className="skeleton h-14 rounded-2xl" />
+    </div>
+  );
+}
 
-  // Construir los 7 días de la semana (lunes → domingo)
-  const todayDate = new Date(today);
-  const dow       = todayDate.getDay(); // 0=Dom
-  const diffToMon = dow === 0 ? -6 : 1 - dow;
-  const monday    = new Date(todayDate);
-  monday.setDate(todayDate.getDate() + diffToMon);
-
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d    = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    const dateStr = d.toISOString().split('T')[0];
-    const session = sessions.find(s => s.scheduled_date === dateStr);
-    return { dateStr, label: DAY_LABELS[i], session };
-  });
+function RunningSessionCard({ session, completed, activeEx, onResume }) {
+  const all = session.session_exercises ?? [];
+  const total = all.length;
+  const doneCount = completed.size;
+  const current = nextPendingExercise(all, completed);
+  const blockLabel = current ? BLOCK_META[exerciseType(current)].label : null;
 
   return (
-    <div className="flex justify-between items-end px-1">
+    <motion.button
+      type="button"
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      onClick={onResume}
+      className="w-full text-left card border border-accent/30 cursor-pointer hover:border-accent/50 transition-colors !py-3.5"
+      aria-label="Volver al entrenamiento en curso"
+    >
+      <div className="flex items-center justify-between mb-2.5">
+        <span className="flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" />
+          <span className="text-accent text-[10px] font-bold uppercase tracking-wider">En vivo</span>
+          <span className="text-txt3 text-[10px] mx-1">·</span>
+          <span className="text-txt3 text-[10px] truncate max-w-[140px]">{session.name}</span>
+        </span>
+        <span className="text-txt3 text-[10px] shrink-0">{doneCount}/{total}</span>
+      </div>
+
+      <div className="w-full h-[3px] bg-border rounded-full overflow-hidden mb-3">
+        <div
+          className="h-full bg-accent rounded-full transition-all duration-500"
+          style={{ width: `${completionPercent(total, doneCount)}%` }}
+        />
+      </div>
+
+      {activeEx ? (
+        <div className="flex items-center gap-2.5">
+          <span className="w-6 h-6 rounded-md bg-accent/15 flex items-center justify-center shrink-0">
+            <ChevronUp size={12} className="text-accent rotate-90" aria-hidden="true" />
+          </span>
+          <span className="flex-1 min-w-0">
+            <span className="block text-xs font-semibold text-txt truncate">{activeEx.name}</span>
+            <span className="block text-[10px] text-txt3 mt-0.5">
+              Serie {activeEx.setNum} de {activeEx.totalSets}
+            </span>
+          </span>
+          <span className="flex gap-1 shrink-0">
+            {Array.from({ length: activeEx.totalSets }).map((_, i) => (
+              <span
+                key={i}
+                className={`w-1.5 h-1.5 rounded-full ${
+                  i < activeEx.setNum - 1 ? 'bg-accent'
+                    : i === activeEx.setNum - 1 ? 'bg-accent animate-pulse'
+                    : 'bg-border'
+                }`}
+              />
+            ))}
+          </span>
+        </div>
+      ) : current ? (
+        <div className="flex items-center gap-2.5">
+          <span className="w-6 h-6 rounded-md bg-accent/15 flex items-center justify-center shrink-0">
+            <ChevronUp size={12} className="text-accent rotate-90" aria-hidden="true" />
+          </span>
+          <span className="flex-1 min-w-0">
+            <span className="block text-xs font-semibold text-txt truncate">{current.exercise_name}</span>
+            <span className="block text-[10px] text-txt3 mt-0.5">
+              {blockLabel}
+              {isTimed(current)
+                ? ` · ${formatDuration(current.duration_seconds)}`
+                : current.reps
+                  ? ` · ${totalSets(current)}×${current.reps}${current.weight_kg ? ` · ${current.weight_kg}kg` : ''}`
+                  : ''}
+            </span>
+          </span>
+        </div>
+      ) : (
+        <p className="text-xs text-txt3">Todos los ejercicios completados</p>
+      )}
+    </motion.button>
+  );
+}
+
+function WeekStrip({ sessions, today }) {
+  // `weekDays` opera sobre strings YYYY-MM-DD: no hay desfase de zona horaria.
+  const days = weekDays(today).map((dateStr, i) => ({
+    dateStr,
+    label: WEEKDAY_INITIALS[i],
+    session: sessions.find(s => s.scheduled_date === dateStr),
+  }));
+
+  return (
+    <ul className="flex justify-between items-end px-1 list-none">
       {days.map(({ dateStr, label, session }) => {
-        const isToday     = dateStr === today;
+        const isToday = dateStr === today;
         const isCompleted = session?.status === 'completed';
-        const isPast      = dateStr < today;
-        const hasSession  = !!session;
+        const isPast = dateStr < today;
+        const hasSession = !!session;
 
         return (
-          <div key={dateStr} className="flex flex-col items-center gap-1.5">
+          <li key={dateStr} className="flex flex-col items-center gap-1.5">
             <span className={`text-[10px] font-semibold uppercase ${isToday ? 'text-accent' : 'text-txt3'}`}>
               {label}
             </span>
-            <div className={`w-7 h-7 rounded-full flex items-center justify-center transition-all
-              ${isCompleted
-                ? 'bg-green/20 border border-green'
-                : isToday && hasSession
-                  ? 'border-2 border-accent'
-                  : hasSession && !isPast
-                    ? 'border border-border'
-                    : 'bg-transparent'
-              }`}
+            <span
+              data-testid={`week-day-${dateStr}`}
+              data-today={isToday ? 'true' : 'false'}
+              data-status={isCompleted ? 'completed' : hasSession ? 'pending' : 'empty'}
+              className={`w-7 h-7 rounded-full flex items-center justify-center transition-all
+                ${isCompleted ? 'bg-green/20 border border-green'
+                  : isToday && hasSession ? 'border-2 border-accent'
+                  : hasSession && !isPast ? 'border border-border'
+                  : 'bg-transparent'}`}
             >
               {isCompleted
-                ? <Check size={12} className="text-green" strokeWidth={2.5} />
+                ? <Check size={12} className="text-green" strokeWidth={2.5} aria-hidden="true" />
                 : isToday && hasSession
-                  ? <div className="w-2 h-2 rounded-full bg-accent" />
+                  ? <span className="w-2 h-2 rounded-full bg-accent" />
                   : hasSession
-                    ? <div className="w-1.5 h-1.5 rounded-full bg-border" />
-                    : <div className="w-1 h-1 rounded-full bg-surface2" />
-              }
-            </div>
-          </div>
+                    ? <span className="w-1.5 h-1.5 rounded-full bg-border" />
+                    : <span className="w-1 h-1 rounded-full bg-surface2" />}
+            </span>
+          </li>
         );
       })}
-    </div>
+    </ul>
   );
 }
 
@@ -302,12 +336,19 @@ function Stat({ val, label }) {
   );
 }
 
-function Ring({ pct, color }) {
-  const r = 30, circ = 2 * Math.PI * r;
+function Ring({ pct, color, label }) {
+  const r = 30;
+  const circ = 2 * Math.PI * r;
   const offset = circ - (pct / 100) * circ;
+
   return (
-    <div className="relative" style={{ width: 76, height: 76 }}>
-      <svg width="76" height="76" style={{ transform: 'rotate(-90deg)', position: 'absolute', inset: 0 }}>
+    <div
+      className="relative"
+      style={{ width: 76, height: 76 }}
+      role="img"
+      aria-label={`${label}: ${pct}%`}
+    >
+      <svg width="76" height="76" style={{ transform: 'rotate(-90deg)', position: 'absolute', inset: 0 }} aria-hidden="true">
         <circle cx="38" cy="38" r={r} fill="none" stroke="#222" strokeWidth="7" />
         <motion.circle
           cx="38" cy="38" r={r}

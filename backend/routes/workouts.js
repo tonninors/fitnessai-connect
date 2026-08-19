@@ -1,12 +1,54 @@
 import { Router } from 'express';
-import { createClient } from '@supabase/supabase-js';
 import { requireAuth } from '../middleware/auth.js';
+import { getSupabase } from '../config/supabase.js';
+import { asyncHandler, throwOnSupabaseError, forbidden, notFound } from '../lib/http.js';
+import { optionalInt, optionalNumber, requireUuid } from '../lib/validation.js';
+import { todayISO, addDays } from '../lib/dates.js';
+import { computeStreak } from '../lib/streak.js';
 
-const router   = Router();
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+const router = Router();
+
+const UPCOMING_LIMIT = 5;
+
+/**
+ * Comprueba que la sesión pertenece al usuario autenticado.
+ * Todas las escrituras sobre sesiones y ejercicios pasan por aquí: el endpoint
+ * de series no lo hacía y permitía escribir sets de cualquier usuario (IDOR).
+ */
+async function assertSessionOwnership(supabase, sessionId, userId) {
+  requireUuid(sessionId, 'sessionId');
+
+  const { data, error } = await supabase
+    .from('workout_sessions')
+    .select('id')
+    .eq('id', sessionId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error) throwOnSupabaseError(error);
+  if (!data) throw forbidden('Sin acceso a esta sesión');
+  return data;
+}
+
+/** Comprueba que el ejercicio pertenece a la sesión indicada. */
+async function assertExerciseInSession(supabase, exerciseId, sessionId) {
+  requireUuid(exerciseId, 'exerciseId');
+
+  const { data, error } = await supabase
+    .from('session_exercises')
+    .select('id, sets')
+    .eq('id', exerciseId)
+    .eq('session_id', sessionId)
+    .maybeSingle();
+
+  if (error) throwOnSupabaseError(error);
+  if (!data) throw notFound('Ejercicio no encontrado en esta sesión');
+  return data;
+}
 
 // GET plan activo con sesiones
-router.get('/plan', requireAuth, async (req, res) => {
+router.get('/plan', requireAuth, asyncHandler(async (req, res) => {
+  const supabase = getSupabase();
   const { data, error } = await supabase
     .from('workout_plans')
     .select(`
@@ -23,13 +65,13 @@ router.get('/plan', requireAuth, async (req, res) => {
     .limit(1)
     .maybeSingle();
 
-  if (error) return res.status(400).json({ error: error.message });
-  res.json(data);
-});
+  throwOnSupabaseError(error);
+  res.json(data ?? null);
+}));
 
 // GET próximas sesiones (sin completar, solo del plan activo)
-router.get('/upcoming', requireAuth, async (req, res) => {
-  const today = new Date().toISOString().split('T')[0];
+router.get('/upcoming', requireAuth, asyncHandler(async (req, res) => {
+  const supabase = getSupabase();
   const { data, error } = await supabase
     .from('workout_sessions')
     .select('id, name, scheduled_date, estimated_duration, focus_areas, rpe_target, status, day_order, workout_plans!inner(status)')
@@ -38,120 +80,156 @@ router.get('/upcoming', requireAuth, async (req, res) => {
     .neq('status', 'completed')
     .neq('status', 'skipped')
     .order('scheduled_date', { ascending: true })
-    .limit(5);
+    .limit(UPCOMING_LIMIT);
 
-  if (error) return res.status(400).json({ error: error.message });
+  throwOnSupabaseError(error);
   res.json(data || []);
-});
+}));
 
 // POST iniciar sesión
-router.post('/sessions/:id/start', requireAuth, async (req, res) => {
+router.post('/sessions/:id/start', requireAuth, asyncHandler(async (req, res) => {
+  const supabase = getSupabase();
+  await assertSessionOwnership(supabase, req.params.id, req.user.id);
+
   const { data, error } = await supabase
     .from('workout_sessions')
     .update({ status: 'in_progress' })
     .eq('id', req.params.id)
     .eq('user_id', req.user.id)
     .select()
-    .single();
+    .maybeSingle();
 
-  if (error) return res.status(400).json({ error: error.message });
+  throwOnSupabaseError(error);
+  if (!data) throw notFound('Sesión no encontrada');
   res.json(data);
-});
+}));
 
 // PATCH completar sesión
-router.patch('/sessions/:id/complete', requireAuth, async (req, res) => {
-  const { actual_duration, actual_calories, rpe_actual, wearable_data } = req.body;
+router.patch('/sessions/:id/complete', requireAuth, asyncHandler(async (req, res) => {
+  const supabase = getSupabase();
+  const sessionId = req.params.id;
+  await assertSessionOwnership(supabase, sessionId, req.user.id);
+
+  const updates = {
+    status: 'completed',
+    completed_at: new Date().toISOString(),
+    actual_duration: optionalInt(req.body?.actual_duration, 'actual_duration', { min: 0, max: 24 * 60 }),
+    actual_calories: optionalInt(req.body?.actual_calories, 'actual_calories', { min: 0, max: 20000 }),
+    rpe_actual: optionalInt(req.body?.rpe_actual, 'rpe_actual', { min: 1, max: 10 }),
+    wearable_data: req.body?.wearable_data && typeof req.body.wearable_data === 'object'
+      ? req.body.wearable_data
+      : {},
+  };
 
   const { data, error } = await supabase
     .from('workout_sessions')
-    .update({
-      status: 'completed',
-      completed_at: new Date().toISOString(),
-      actual_duration,
-      actual_calories,
-      rpe_actual,
-      wearable_data: wearable_data || {},
-    })
-    .eq('id', req.params.id)
+    .update(updates)
+    .eq('id', sessionId)
     .eq('user_id', req.user.id)
     .select()
-    .single();
+    .maybeSingle();
 
-  if (error) return res.status(400).json({ error: error.message });
+  throwOnSupabaseError(error);
+  if (!data) throw notFound('Sesión no encontrada');
 
-  await updateStreak(req.user.id);
+  await updateStreak(supabase, req.user.id, { excludeSessionId: sessionId });
 
   res.json(data);
-});
+}));
 
 // PATCH marcar ejercicio como completado
-router.patch('/sessions/:sessionId/exercises/:exerciseId/toggle', requireAuth, async (req, res) => {
-  const { completed } = req.body;
+router.patch('/sessions/:sessionId/exercises/:exerciseId/toggle', requireAuth, asyncHandler(async (req, res) => {
+  const supabase = getSupabase();
+  const { sessionId, exerciseId } = req.params;
 
-  // Verificar que la sesión pertenece al usuario
-  const { data: session } = await supabase
-    .from('workout_sessions')
-    .select('id')
-    .eq('id', req.params.sessionId)
-    .eq('user_id', req.user.id)
-    .single();
+  if (typeof req.body?.completed !== 'boolean') {
+    const err = new Error('completed debe ser booleano');
+    err.status = 400;
+    throw err;
+  }
 
-  if (!session) return res.status(403).json({ error: 'Sin acceso' });
+  await assertSessionOwnership(supabase, sessionId, req.user.id);
+  await assertExerciseInSession(supabase, exerciseId, sessionId);
 
   const { data, error } = await supabase
     .from('session_exercises')
-    .update({ completed })
-    .eq('id', req.params.exerciseId)
-    .eq('session_id', req.params.sessionId)
+    .update({ completed: req.body.completed })
+    .eq('id', exerciseId)
+    .eq('session_id', sessionId)
     .select()
-    .single();
+    .maybeSingle();
 
-  if (error) return res.status(400).json({ error: error.message });
+  throwOnSupabaseError(error);
+  if (!data) throw notFound('Ejercicio no encontrado');
   res.json(data);
-});
+}));
 
 // POST registrar una serie
-router.post('/sessions/:sessionId/exercises/:exerciseId/sets', requireAuth, async (req, res) => {
-  const { set_number, reps_actual, weight_actual_kg } = req.body;
+router.post('/sessions/:sessionId/exercises/:exerciseId/sets', requireAuth, asyncHandler(async (req, res) => {
+  const supabase = getSupabase();
+  const { sessionId, exerciseId } = req.params;
+
+  // Sin esta comprobación cualquier usuario autenticado podía escribir series
+  // en el ejercicio de otro con sólo conocer su id.
+  await assertSessionOwnership(supabase, sessionId, req.user.id);
+  await assertExerciseInSession(supabase, exerciseId, sessionId);
+
+  const setNumber = optionalInt(req.body?.set_number, 'set_number', { min: 1, max: 50 });
+  if (setNumber === null) {
+    const err = new Error('set_number es obligatorio');
+    err.status = 400;
+    throw err;
+  }
 
   const { data, error } = await supabase
     .from('session_sets')
     .upsert({
-      session_exercise_id: req.params.exerciseId,
-      set_number,
-      reps_actual,
-      weight_actual_kg,
+      session_exercise_id: exerciseId,
+      set_number: setNumber,
+      reps_actual: optionalInt(req.body?.reps_actual, 'reps_actual', { min: 0, max: 1000 }),
+      weight_actual_kg: optionalNumber(req.body?.weight_actual_kg, 'weight_actual_kg', { min: 0, max: 1000 }),
       completed: true,
     }, { onConflict: 'session_exercise_id,set_number' })
     .select()
-    .single();
+    .maybeSingle();
 
-  if (error) return res.status(400).json({ error: error.message });
+  throwOnSupabaseError(error);
   res.json(data);
-});
+}));
 
-async function updateStreak(userId) {
-  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+/**
+ * Recalcula racha y nivel tras completar una sesión.
+ *
+ * Reglas:
+ * - Se suma un día si ayer también hubo sesión completada.
+ * - Si hoy ya había otra sesión completada la racha NO se vuelve a incrementar
+ *   (antes, entrenar dos veces en un día sumaba dos días de racha).
+ */
+export async function updateStreak(supabase, userId, { excludeSessionId = null, today = todayISO() } = {}) {
+  const yesterday = addDays(today, -1);
 
-  const [{ data: profile }, { data: yday }] = await Promise.all([
-    supabase.from('profiles').select('current_streak, longest_streak').eq('id', userId).single(),
+  const [profileRes, yesterdayRes, todayRes] = await Promise.all([
+    supabase.from('profiles').select('current_streak, longest_streak').eq('id', userId).maybeSingle(),
     supabase.from('workout_sessions')
       .select('id').eq('user_id', userId).eq('scheduled_date', yesterday).eq('status', 'completed').limit(1),
+    supabase.from('workout_sessions')
+      .select('id').eq('user_id', userId).eq('scheduled_date', today).eq('status', 'completed'),
   ]);
 
-  const newStreak  = (yday?.length > 0) ? (profile?.current_streak || 0) + 1 : 1;
-  const newLongest = Math.max(newStreak, profile?.longest_streak || 0);
+  const todaySessions = Array.isArray(todayRes.data) ? todayRes.data : [];
+  const yesterdaySessions = Array.isArray(yesterdayRes.data) ? yesterdayRes.data : [];
 
-  const level      = Math.floor(newStreak / 10) + 1;
-  const levelNames = ['Principiante', 'En forma', 'Atleta', 'Avanzado', 'Elite'];
-  const levelName  = levelNames[Math.min(level - 1, levelNames.length - 1)];
+  const next = computeStreak({
+    currentStreak: profileRes.data?.current_streak ?? 0,
+    longestStreak: profileRes.data?.longest_streak ?? 0,
+    completedYesterday: yesterdaySessions.length > 0,
+    alreadyCountedToday: todaySessions.some(s => s.id !== excludeSessionId),
+  });
 
-  await supabase.from('profiles').update({
-    current_streak: newStreak,
-    longest_streak: newLongest,
-    level,
-    level_name: levelName,
-  }).eq('id', userId);
+  const { error } = await supabase.from('profiles').update(next).eq('id', userId);
+  if (error) console.error('[workouts] no se pudo actualizar la racha:', error.message);
+
+  return next;
 }
 
 export default router;

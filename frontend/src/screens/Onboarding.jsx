@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Rocket, Flame, Dumbbell, Wind, Footprints, Trophy, Heart, ArrowLeft, Sparkles, Wifi, UserCheck } from 'lucide-react';
+import { Rocket, Flame, Dumbbell, Wind, Footprints, Trophy, Heart, ArrowLeft, Sparkles, Wifi, UserCheck, Home, Building2, PersonStanding } from 'lucide-react';
 import { api } from '../api/client.js';
 
 const GOALS = [
@@ -27,10 +27,10 @@ const LEVELS    = [
   { id: 'advanced',     label: 'Avanzado',     desc: 'Más de 4 años de experiencia' },
 ];
 const EQUIPMENT = [
-  { id: 'ninguno',           label: 'Sin equipo', icon: '🏠' },
-  { id: 'mancuernas',        label: 'Mancuernas', icon: '🏋️' },
-  { id: 'gimnasio_completo', label: 'Gimnasio',   icon: '🏟️' },
-  { id: 'calistenia',        label: 'Calistenia', icon: '🤸' },
+  { id: 'ninguno',           label: 'Sin equipo', Icon: Home },
+  { id: 'mancuernas',        label: 'Mancuernas', Icon: Dumbbell },
+  { id: 'gimnasio_completo', label: 'Gimnasio',   Icon: Building2 },
+  { id: 'calistenia',        label: 'Calistenia', Icon: PersonStanding },
 ];
 
 const stepVariants = {
@@ -159,14 +159,16 @@ export default function Onboarding({ user, onComplete }) {
             <p className="text-sm text-txt3 text-center mb-6">Selecciona uno o varios</p>
             <div className="onboard-chip-grid">
               {GOALS.map(({ id, label, Icon }) => (
-                <div
+                <button
+                  type="button"
                   key={id}
+                  aria-pressed={goals.includes(id)}
                   className={`onboard-chip${goals.includes(id) ? ' selected' : ''}`}
                   onClick={() => toggleList(goals, setGoals, id)}
                 >
-                  <Icon size={20} className={goals.includes(id) ? 'text-white' : 'text-txt3'} />
+                  <Icon size={20} className={goals.includes(id) ? 'text-accent' : 'text-txt3'} aria-hidden="true" />
                   <span className="chip-label">{label}</span>
-                </div>
+                </button>
               ))}
             </div>
           </div>
@@ -181,33 +183,41 @@ export default function Onboarding({ user, onComplete }) {
             <div className="text-[10px] text-txt3 uppercase tracking-wider font-semibold mb-2.5">Días por semana</div>
             <div className="onboard-num-row">
               {DAYS.map(d => (
-                <div
+                <button
+                  type="button"
                   key={d}
+                  aria-pressed={days === d}
+                  aria-label={`${d} dias por semana`}
                   className={`onboard-num-chip${days === d ? ' selected' : ''}`}
                   onClick={() => setDays(d)}
-                >{d}</div>
+                >{d}</button>
               ))}
             </div>
 
             <div className="text-[10px] text-txt3 uppercase tracking-wider font-semibold mb-2.5 mt-6">Duración por sesión</div>
             <div className="onboard-num-row">
               {DURATIONS.map(d => (
-                <div
+                <button
+                  type="button"
                   key={d}
+                  aria-pressed={duration === d}
+                  aria-label={`${d} minutos por sesion`}
                   className={`onboard-num-chip${duration === d ? ' selected' : ''}`}
                   onClick={() => setDuration(d)}
-                >{d}m</div>
+                >{d}m</button>
               ))}
             </div>
 
             <div className="text-[10px] text-txt3 uppercase tracking-wider font-semibold mb-2.5 mt-6">Cardio por sesión</div>
             <div className="onboard-num-row flex-wrap">
               {CARDIO_OPTS.map(({ value, label }) => (
-                <div
+                <button
+                  type="button"
                   key={value}
+                  aria-pressed={cardioMin === value}
                   className={`onboard-num-chip${cardioMin === value ? ' selected' : ''}`}
                   onClick={() => setCardioMin(value)}
-                >{label}</div>
+                >{label}</button>
               ))}
             </div>
 
@@ -228,41 +238,46 @@ export default function Onboarding({ user, onComplete }) {
             <p className="text-sm text-txt3 text-center mb-6">Para calibrar la intensidad exacta</p>
 
             <div className="text-[10px] text-txt3 uppercase tracking-wider font-semibold mb-2.5">Experiencia</div>
-            <div className="flex flex-col gap-2 mb-6">
+            <div className="flex flex-col gap-2 mb-6" role="radiogroup" aria-label="Nivel de experiencia">
               {LEVELS.map(({ id, label, desc }) => (
-                <div
+                <button
+                  type="button"
                   key={id}
-                  className={`flex items-center gap-3.5 px-4 py-3.5 rounded-xl border cursor-pointer transition-all ${
+                  role="radio"
+                  aria-checked={level === id}
+                  className={`w-full text-left flex items-center gap-3.5 px-4 py-3.5 rounded-xl border cursor-pointer transition-all ${
                     level === id
                       ? 'bg-accent/10 border-accent'
                       : 'bg-surface2 border-border hover:border-txt3'
                   }`}
                   onClick={() => setLevel(id)}
                 >
-                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                  <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
                     level === id ? 'border-accent' : 'border-txt3'
                   }`}>
-                    {level === id && <div className="w-2.5 h-2.5 rounded-full bg-accent" />}
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium">{label}</div>
-                    <div className="text-xs text-txt3 mt-0.5">{desc}</div>
-                  </div>
-                </div>
+                    {level === id && <span className="w-2.5 h-2.5 rounded-full bg-accent" />}
+                  </span>
+                  <span>
+                    <span className="block text-sm font-medium">{label}</span>
+                    <span className="block text-xs text-txt3 mt-0.5">{desc}</span>
+                  </span>
+                </button>
               ))}
             </div>
 
             <div className="text-[10px] text-txt3 uppercase tracking-wider font-semibold mb-2.5">Equipo disponible</div>
             <div className="onboard-chip-grid">
-              {EQUIPMENT.map(({ id, label, icon }) => (
-                <div
+              {EQUIPMENT.map(({ id, label, Icon }) => (
+                <button
+                  type="button"
                   key={id}
+                  aria-pressed={equip.includes(id)}
                   className={`onboard-chip${equip.includes(id) ? ' selected' : ''}`}
                   onClick={() => toggleList(equip, setEquip, id)}
                 >
-                  <span className="text-lg">{icon}</span>
+                  <Icon size={20} className={equip.includes(id) ? 'text-accent' : 'text-txt3'} aria-hidden="true" />
                   <span className="chip-label">{label}</span>
-                </div>
+                </button>
               ))}
             </div>
           </div>
