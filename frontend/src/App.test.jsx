@@ -151,8 +151,10 @@ describe('App — entrenamiento en curso (regresión)', () => {
     await startWorkout();
     await screen.findByRole('dialog');
 
-    await userEvent.click(screen.getByRole('button', { name: /movilidad de hombro/i }));
-    await userEvent.click(screen.getByRole('button', { name: /terminar ejercicio/i }));
+    // La app decide qué ejercicio toca: solo hay que arrancarlo y terminarlo.
+    await userEvent.click(screen.getByRole('button', { name: /comenzar entrenamiento/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /empezar ejercicio/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /terminar ejercicio/i }));
     await userEvent.click(screen.getByRole('button', { name: /minimizar entrenamiento/i }));
 
     // La tarjeta "En vivo" de Inicio muestra 1 de 4 ejercicios completados.

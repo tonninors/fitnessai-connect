@@ -1,19 +1,39 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, Flame, Clock, Sparkles, X, Minus, Check, Dumbbell, Wind, Zap, ChevronRight } from 'lucide-react';
+import {
+  Heart, Flame, Clock, X, Minus, Check, Dumbbell, Wind, Zap,
+  ChevronRight, ChevronDown, Play, RefreshCw, Loader2, AlertCircle,
+} from 'lucide-react';
 import { api } from '../api/client.js';
 import {
   groupByBlock,
+  sortByBlock,
   exerciseType,
   isTimed,
   totalSets,
-  completionPercent,
   formatTimer,
   formatDuration,
   estimateCalories,
 } from '../lib/workout.js';
 
-const DEFAULT_INSIGHT = 'Tu FC está en zona óptima. Mantén el tempo 2-1-2.';
+/**
+ * Une la fila original de la sesión con la que devuelve el backend tras
+ * sustituir un ejercicio. El `id` de la fila de sesión nunca cambia: de él
+ * cuelgan el progreso de series, `completedEx` y los callbacks hacia App.
+ */
+function mergeExercise(base, patch) {
+  const merged = { ...base };
+  for (const [key, value] of Object.entries(patch ?? {})) {
+    if (value !== undefined) merged[key] = value;
+  }
+  merged.id = base.id;
+  return merged;
+}
+
+/** Primer ejercicio pendiente de un bloque, en el orden planificado. */
+function firstPendingIn(block, doneIds) {
+  return block?.exercises.find(ex => !doneIds.has(ex.id)) ?? null;
+}
 
 export default function WorkoutModal({
   session,
@@ -24,49 +44,47 @@ export default function WorkoutModal({
   onExerciseDone,
   onActiveExChange,
 }) {
-  const exercises = session?.session_exercises ?? [];
+  const rawExercises = session?.session_exercises;
 
   const [hr, setHr] = useState(null);
   const [calories, setCalories] = useState(0);
   const [seconds, setSeconds] = useState(0);
-  const [insight, setInsight] = useState(DEFAULT_INSIGHT);
   const [restState, setRestState] = useState(null); // null | { remaining, total, done, nextSet, totalSets }
   const [blockIdx, setBlockIdx] = useState(0);
   const [timerStarted, setTimerStarted] = useState(false);
   const [activeExId, setActiveExId] = useState(null);
   const [activeSetNum, setActiveSetNum] = useState(1);
+  // false = vista previa del ejercicio (aún se puede cambiar por otro);
+  // true = series en curso (ya no se ofrece sustituirlo).
+  const [exStarted, setExStarted] = useState(false);
+  const [replacements, setReplacements] = useState({}); // id de la fila → ejercicio sustituto
+  const [altPanel, setAltPanel] = useState(null);       // null | { status, options, error }
   const [completedEx, setCompletedEx] = useState(
-    () => new Set(exercises.filter(e => e.completed).map(e => e.id)),
+    () => new Set((rawExercises ?? []).filter(e => e.completed).map(e => e.id)),
+  );
+
+  // Un ejercicio sustituido conserva su fila (y por tanto su progreso).
+  const exercises = useMemo(
+    () => (rawExercises ?? []).map(ex => (replacements[ex.id] ? mergeExercise(ex, replacements[ex.id]) : ex)),
+    [rawExercises, replacements],
   );
 
   // Los bloques se calculan con `exerciseType`, que hace fallback a "strength":
   // los ejercicios sin `exercise_type` ya no desaparecen de la sesión.
-  const blocks = groupByBlock(exercises);
+  // `sortByBlock` garantiza que dentro del bloque manden `order_num`: es el
+  // orden en el que la app va activando los ejercicios, uno a uno.
+  const blocks = useMemo(() => groupByBlock(sortByBlock(exercises)), [exercises]);
   const currentBlock = blocks[blockIdx] ?? blocks[0] ?? null;
   const blockExercises = currentBlock?.exercises ?? [];
   const blockAllDone = blockExercises.length > 0 && blockExercises.every(e => completedEx.has(e.id));
   const isLastBlock = blockIdx >= blocks.length - 1;
 
   const allDone = exercises.length > 0 && completedEx.size >= exercises.length;
-  const progress = completionPercent(exercises.length, completedEx.size);
 
   const storageKey = `workout_start_${session?.id}`;
   const startTimeRef = useRef(null);
   const intervalRef = useRef(null);
   const restRef = useRef(null);
-
-  // Insight de IA al montar. Si falla se mantiene el texto por defecto.
-  useEffect(() => {
-    let cancelled = false;
-    api.post('/ai/insight', {
-      type: 'workout_ready',
-      context: { session_name: session?.name, rpe_target: session?.rpe_target },
-    })
-      .then(d => { if (!cancelled && d?.insight) setInsight(d.insight); })
-      .catch(() => { /* insight es opcional: no bloquea el entrenamiento */ });
-
-    return () => { cancelled = true; };
-  }, [session?.id, session?.name, session?.rpe_target]);
 
   // Los temporizadores viven mientras la sesión esté activa, aunque el modal
   // esté minimizado. Se limpian al desmontar.
@@ -117,13 +135,44 @@ export default function WorkoutModal({
     setRestState(null);
   }
 
-  /** Marca un ejercicio como "en curso" y reinicia el contador de series. */
-  function selectEx(ex) {
-    if (completedEx.has(ex.id)) return;
-    startTimer();
-    setActiveExId(ex.id);
+  /**
+   * Propone el ejercicio que toca, en vista previa. Es la única vía de
+   * activación: el usuario nunca elige cuál, la app decide según el orden del
+   * plan. Sólo puede aceptarlo ("Empezar ejercicio") o pedir un sustituto.
+   */
+  function activate(ex) {
+    setAltPanel(null);
     setActiveSetNum(1);
+    setExStarted(false);
+    if (!ex) {
+      setActiveExId(null);
+      onActiveExChange?.(null);
+      return;
+    }
+    setActiveExId(ex.id);
     onActiveExChange?.({ id: ex.id, name: ex.exercise_name, setNum: 1, totalSets: totalSets(ex) });
+  }
+
+  /** Cierra la vista previa y arranca las series del ejercicio propuesto. */
+  function beginExercise() {
+    setAltPanel(null);
+    setExStarted(true);
+  }
+
+  /** Arranca el cronómetro y activa el primer ejercicio pendiente. */
+  function handleStart() {
+    startTimer();
+    const idx = blocks.findIndex(b => b.exercises.some(e => !completedEx.has(e.id)));
+    const target = idx >= 0 ? idx : 0;
+    setBlockIdx(target);
+    activate(firstPendingIn(blocks[target], completedEx));
+  }
+
+  /** Pasa al siguiente bloque y activa su primer ejercicio pendiente. */
+  function handleNextBlock() {
+    const idx = blockIdx + 1;
+    setBlockIdx(idx);
+    activate(firstPendingIn(blocks[idx], completedEx));
   }
 
   /** Cierra una serie del ejercicio activo (o el ejercicio, si es la última). */
@@ -131,11 +180,11 @@ export default function WorkoutModal({
     const sets = totalSets(ex);
 
     if (isTimed(ex) || activeSetNum >= sets) {
-      setActiveExId(null);
-      setActiveSetNum(1);
-      setCompletedEx(prev => new Set(prev).add(ex.id));
+      const done = new Set(completedEx).add(ex.id);
+      setCompletedEx(done);
       onExerciseDone?.(ex.id);
-      onActiveExChange?.(null);
+      // Avance automático: el siguiente pendiente del bloque, sin elegir.
+      activate(firstPendingIn(currentBlock, done));
       await api
         .patch(`/workouts/sessions/${session.id}/exercises/${ex.id}/toggle`, { completed: true })
         .catch(() => { /* el progreso local se conserva; se reintenta al recargar */ });
@@ -146,6 +195,46 @@ export default function WorkoutModal({
     setActiveSetNum(next);
     onActiveExChange?.({ id: ex.id, name: ex.exercise_name, setNum: next, totalSets: sets });
     if (Number(ex.rest_seconds) > 0) startRest(ex.rest_seconds, next, sets);
+  }
+
+  // ── Ejercicio alternativo ─────────────────────────────────────────────────
+  async function openAlternatives(ex) {
+    setAltPanel({ status: 'loading', options: [], error: null });
+    try {
+      const data = await api.post(`/workouts/sessions/${session.id}/exercises/${ex.id}/alternatives`, {});
+      const options = Array.isArray(data?.alternatives) ? data.alternatives.slice(0, 3) : [];
+      setAltPanel({ status: options.length ? 'ready' : 'empty', options, error: null });
+    } catch {
+      setAltPanel({ status: 'error', options: [], error: 'No pudimos cargar alternativas. Sigue con este ejercicio o inténtalo otra vez.' });
+    }
+  }
+
+  async function chooseAlternative(ex, alt) {
+    setAltPanel(prev => ({ ...(prev ?? { options: [] }), status: 'applying', error: null }));
+    try {
+      const data = await api.patch(
+        `/workouts/sessions/${session.id}/exercises/${ex.id}/substitute`,
+        { exercise_id: alt.id },
+      );
+      const row = data?.exercise;
+      if (!row) throw new Error('Respuesta sin ejercicio');
+
+      setReplacements(prev => ({ ...prev, [ex.id]: row }));
+      setAltPanel(null);
+      const merged = mergeExercise(ex, row);
+      onActiveExChange?.({
+        id: ex.id,
+        name: merged.exercise_name,
+        setNum: activeSetNum,
+        totalSets: totalSets(merged),
+      });
+    } catch {
+      setAltPanel(prev => ({
+        status: 'ready',
+        options: prev?.options ?? [],
+        error: 'No pudimos cambiar el ejercicio. Inténtalo otra vez o continúa con el actual.',
+      }));
+    }
   }
 
   function stopTimers() {
@@ -170,13 +259,18 @@ export default function WorkoutModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onClose, storageKey]);
 
-  // Escape minimiza el modal, como en cualquier hoja modal del sistema.
+  // Escape cierra primero el panel de alternativas; si no hay, minimiza.
+  const altOpen = altPanel !== null;
   useEffect(() => {
     if (!visible) return undefined;
-    const onKeyDown = e => { if (e.key === 'Escape') onMinimize?.(); };
+    const onKeyDown = e => {
+      if (e.key !== 'Escape') return;
+      if (altOpen) setAltPanel(null);
+      else onMinimize?.();
+    };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [visible, onMinimize]);
+  }, [visible, onMinimize, altOpen]);
 
   if (!visible) return null;
 
@@ -254,7 +348,7 @@ export default function WorkoutModal({
             <motion.div
               key="full"
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="metrics-row mb-0"
+              className="metrics-row mb-4"
             >
               <Metric icon={Heart} color="text-red-400" label="FC bpm" value={hasWearable ? (hr ?? '—') : '—'} />
               <Metric icon={Flame} color="text-accent" label="Kcal" value={Math.round(calories)} />
@@ -263,119 +357,79 @@ export default function WorkoutModal({
           )}
         </AnimatePresence>
 
-        {/* Tarjeta del ejercicio activo */}
-        <AnimatePresence>
-          {activeEx && (
-            <ActiveExerciseCard
-              key="focus-card"
-              exercise={activeEx}
-              block={currentBlock}
-              setNum={activeSetNum}
-              onCompleteSerie={() => completeSerie(activeEx)}
-            />
-          )}
-        </AnimatePresence>
-
-        {/* Progreso */}
-        <div className="mb-3">
-          <div className="flex justify-between items-center mb-1.5">
-            <span className="text-xs text-txt3 font-medium">Progreso</span>
-            <span className="text-xs text-accent font-semibold">{progress}%</span>
-          </div>
-          <div
-            className="progress-bar-bg"
-            role="progressbar"
-            aria-valuenow={progress}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-label="Progreso del entrenamiento"
-          >
-            <motion.div className="progress-bar-fill" animate={{ width: `${progress}%` }} transition={{ duration: 0.4 }} />
-          </div>
-        </div>
-
-        {/* Cabecera del bloque actual */}
-        {currentBlock && (
-          <div className={`flex items-center gap-2 rounded-xl px-3.5 py-2.5 mb-3 border border-border border-l-[3px] ${currentBlock.borderClass} ${currentBlock.bgClass}`}>
-            <span className={`text-xs font-bold uppercase tracking-wider ${currentBlock.colorClass}`}>
-              {currentBlock.label}
-            </span>
-            <span className="text-[10px] text-txt3 ml-auto">{blockIdx + 1} / {blocks.length}</span>
-          </div>
-        )}
-
-        {!timerStarted && (
-          <p className="text-[11px] text-txt3 text-center mb-3">Toca un ejercicio para comenzar</p>
-        )}
-
-        {/* Lista de ejercicios del bloque */}
-        {blockExercises.length > 0 ? (
-          <AnimatePresence mode="wait">
-            <motion.ul
-              key={currentBlock?.type}
-              initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.2 }}
-              className="card !p-0 overflow-hidden mb-3 list-none"
-            >
-              {blockExercises.map((ex, i) => {
-                const isDone = completedEx.has(ex.id);
-                const isActive = activeExId === ex.id;
-                return (
-                  <li key={ex.id}>
-                    <button
-                      type="button"
-                      disabled={isDone || isActive}
-                      onClick={() => selectEx(ex)}
-                      aria-label={`${ex.exercise_name}${isDone ? ' (completado)' : ''}`}
-                      className={`w-full text-left flex items-center gap-2.5 px-3.5 py-2.5 border-0 border-b border-border last:border-b-0 bg-transparent transition-all
-                        ${isDone ? 'opacity-40 cursor-default' : 'cursor-pointer'}
-                        ${isActive ? 'bg-accent/5 cursor-default' : ''}`}
-                    >
-                      <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 transition-colors
-                        ${isDone ? 'bg-green/20 text-green'
-                        : isActive ? `${currentBlock?.bgClass} ${currentBlock?.colorClass}`
-                        : 'bg-surface2 text-txt3'}`}
-                      >
-                        {isDone ? <Check size={12} strokeWidth={2.5} aria-hidden="true" /> : i + 1}
-                      </span>
-                      <span className="flex-1 min-w-0">
-                        <span className={`block text-xs font-semibold leading-snug ${isDone ? 'line-through text-txt3' : isActive ? 'text-txt' : 'text-txt2'}`}>
-                          {ex.exercise_name}
-                        </span>
-                        <span className="block text-[10px] text-txt3 mt-0.5">
-                          {isTimed(ex) ? formatDuration(ex.duration_seconds)
-                            : `${totalSets(ex)} × ${ex.reps ?? '?'} reps${Number(ex.weight_kg) > 0 ? ` · ${ex.weight_kg}kg` : ''}`}
-                        </span>
-                      </span>
-                      {isActive && (
-                        <span className={`text-[10px] font-bold uppercase tracking-wider ${currentBlock?.colorClass}`}>
-                          En curso
-                        </span>
-                      )}
-                    </button>
-                  </li>
-                );
-              })}
-            </motion.ul>
-          </AnimatePresence>
-        ) : (
+        {exercises.length === 0 && (
           <p className="text-xs text-txt3 text-center py-6">Esta sesión no tiene ejercicios cargados.</p>
         )}
 
-        {/* Insight de IA */}
-        <div className="flex gap-3 items-start bg-surface2 rounded-xl p-3.5 mb-4 border border-border border-l-[3px] border-l-accent">
-          <Sparkles size={14} className="text-accent shrink-0 mt-0.5" aria-hidden="true" />
-          <div>
-            <p className="text-[10px] text-accent font-semibold uppercase tracking-wider mb-1">IA en tiempo real</p>
-            <p className="text-xs text-txt2 leading-relaxed">{insight}</p>
-          </div>
-        </div>
+        {/* Antes de empezar: un único botón. La app decide qué toca. */}
+        {!timerStarted && exercises.length > 0 && !allDone && (
+          <button type="button" className="btn btn-primary mb-3" onClick={handleStart}>
+            <Play size={16} aria-hidden="true" /> Comenzar entrenamiento
+          </button>
+        )}
+
+        {timerStarted && (
+          <>
+            {/* Cabecera del bloque actual */}
+            {currentBlock && (
+              <div className={`flex items-center gap-2 rounded-xl px-3.5 py-2.5 mb-3 border border-border border-l-[3px] ${currentBlock.borderClass} ${currentBlock.bgClass}`}>
+                <span className={`text-xs font-bold uppercase tracking-wider ${currentBlock.colorClass}`}>
+                  {currentBlock.label}
+                </span>
+                <span className="text-[10px] text-txt3 ml-auto">{blockIdx + 1} / {blocks.length}</span>
+              </div>
+            )}
+
+            {/* Ejercicio actual: uno solo, sin lista ni selección */}
+            <AnimatePresence mode="wait">
+              {activeEx && (
+                <ActiveExerciseCard
+                  key={`${activeEx.id}-${activeEx.exercise_name}`}
+                  exercise={activeEx}
+                  block={currentBlock}
+                  setNum={activeSetNum}
+                  started={exStarted}
+                  onBegin={beginExercise}
+                  onCompleteSerie={() => completeSerie(activeEx)}
+                />
+              )}
+            </AnimatePresence>
+
+            {/* Sustituir solo tiene sentido antes de empezar: si ya hiciste una
+                serie, es que sí puedes hacerlo. */}
+            {activeEx && !exStarted && (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-surface mb-3"
+                  style={{ padding: '9px' }}
+                  onClick={() => (altPanel ? setAltPanel(null) : openAlternatives(activeEx))}
+                  aria-expanded={altPanel !== null}
+                >
+                  <RefreshCw size={14} aria-hidden="true" /> No puedo hacer este ejercicio
+                </button>
+
+                <AnimatePresence>
+                  {altPanel && (
+                    <AlternativesPanel
+                      key="alternatives"
+                      panel={altPanel}
+                      onChoose={alt => chooseAlternative(activeEx, alt)}
+                      onRetry={() => openAlternatives(activeEx)}
+                      onDismiss={() => setAltPanel(null)}
+                    />
+                  )}
+                </AnimatePresence>
+              </>
+            )}
+          </>
+        )}
 
         {/* Avanzar de bloque / finalizar */}
         <AnimatePresence>
-          {blockAllDone && !isLastBlock && (
+          {timerStarted && blockAllDone && !isLastBlock && (
             <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-              <button type="button" className="btn btn-primary" onClick={() => setBlockIdx(i => i + 1)}>
+              <button type="button" className="btn btn-primary" onClick={handleNextBlock}>
                 <ChevronRight size={16} aria-hidden="true" />
                 Siguiente fase: {blocks[blockIdx + 1]?.label}
               </button>
@@ -409,13 +463,66 @@ function Metric({ icon: Icon, color, label, value }) {
   );
 }
 
-function ActiveExerciseCard({ exercise, block, setNum, onCompleteSerie }) {
+/**
+ * Media de referencia del ejercicio. El join `exercises` puede venir vacío
+ * (es lo normal hoy): en ese caso se cae al icono del bloque.
+ */
+function ExerciseMedia({ exercise, block }) {
+  const media = exercise?.exercises ?? null;
+  const label = `Demostración de ${exercise?.exercise_name ?? 'el ejercicio'}`;
+  const wrapper = 'relative w-full h-28 flex items-center justify-center overflow-hidden';
+
+  if (media?.video_url) {
+    return (
+      <div className={wrapper} style={{ background: '#111' }}>
+        <video
+          src={media.video_url}
+          className="w-full h-full object-cover"
+          autoPlay
+          loop
+          muted
+          playsInline
+          role="img"
+          aria-label={label}
+        />
+      </div>
+    );
+  }
+
+  if (media?.image_url) {
+    return (
+      <div className={wrapper} style={{ background: '#111' }}>
+        <img src={media.image_url} alt={label} className="w-full h-full object-cover" />
+      </div>
+    );
+  }
+
+  const type = exerciseType(exercise);
+  const ExIcon = type === 'strength' ? Dumbbell : type === 'cardio' ? Zap : Wind;
+  return (
+    <div className={wrapper} style={{ background: 'linear-gradient(135deg,#1a1a1a 0%,#222 100%)' }}>
+      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${block?.bgClass ?? ''}`}>
+        <ExIcon size={28} className={block?.colorClass} aria-hidden="true" />
+      </div>
+      <span className="absolute top-2 right-2 text-[10px] text-txt3 bg-black/40 rounded px-1.5 py-0.5">
+        sin imagen
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Ejercicio que toca ahora. Tiene dos estados:
+ * - `started` false: vista previa. Se ve qué viene y se decide empezarlo o
+ *   pedir un sustituto.
+ * - `started` true: series en curso.
+ */
+function ActiveExerciseCard({ exercise, block, setNum, started, onBegin, onCompleteSerie }) {
   const timed = isTimed(exercise);
   const sets = totalSets(exercise);
   const isLastSet = timed || setNum >= sets;
   const weightLabel = Number(exercise.weight_kg) > 0 ? `${exercise.weight_kg} kg` : 'Peso corporal';
-  const type = exerciseType(exercise);
-  const ExIcon = type === 'strength' ? Dumbbell : type === 'cardio' ? Zap : Wind;
+  const description = exercise?.exercises?.description;
 
   return (
     <motion.div
@@ -424,26 +531,26 @@ function ActiveExerciseCard({ exercise, block, setNum, onCompleteSerie }) {
       className="rounded-2xl border border-border overflow-hidden mb-3"
       style={{ background: 'var(--color-surface2)' }}
     >
-      {/* Placeholder hasta que la biblioteca de ejercicios tenga image_url */}
-      <div
-        className="relative w-full h-28 flex items-center justify-center"
-        style={{ background: 'linear-gradient(135deg,#1a1a1a 0%,#222 100%)' }}
-      >
-        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${block?.bgClass ?? ''}`}>
-          <ExIcon size={28} className={block?.colorClass} aria-hidden="true" />
-        </div>
-        <span className="absolute top-2 right-2 text-[10px] text-txt3 bg-black/40 rounded px-1.5 py-0.5">
-          sin imagen
-        </span>
-      </div>
+      <ExerciseMedia exercise={exercise} block={block} />
 
       <div className="p-4">
         <p className="text-base font-bold mb-1">{exercise.exercise_name}</p>
+        {description && (
+          <p className="text-xs text-txt3 leading-relaxed mb-2">{description}</p>
+        )}
         <div className="flex items-center gap-3 mb-4 flex-wrap">
           {timed ? (
             <span className="text-sm font-semibold text-txt2">{formatDuration(exercise.duration_seconds)}</span>
           ) : (
             <>
+              {/* En vista previa aún no hay barra de series: se anuncia aquí
+                  cuántas te esperan. */}
+              {!started && sets > 1 && (
+                <>
+                  <span className="text-sm font-semibold text-txt2">{sets} series</span>
+                  <span className="w-1 h-1 rounded-full bg-txt3" />
+                </>
+              )}
               <span className="text-sm font-semibold text-txt2">{exercise.reps ?? '?'} reps</span>
               <span className="w-1 h-1 rounded-full bg-txt3" />
               <span className={`text-sm font-bold ${Number(exercise.weight_kg) > 0 ? block?.colorClass : 'text-txt2'}`}>
@@ -459,7 +566,7 @@ function ActiveExerciseCard({ exercise, block, setNum, onCompleteSerie }) {
           )}
         </div>
 
-        {!timed && sets > 1 && (
+        {started && !timed && sets > 1 && (
           <div className="mb-3">
             <div className="flex gap-1.5 mb-1">
               {Array.from({ length: sets }, (_, i) => (
@@ -477,13 +584,172 @@ function ActiveExerciseCard({ exercise, block, setNum, onCompleteSerie }) {
           </div>
         )}
 
-        <button type="button" className="btn btn-primary" style={{ padding: '11px' }} onClick={onCompleteSerie}>
-          {isLastSet
-            ? <><Check size={15} aria-hidden="true" /> Terminar ejercicio</>
-            : <><ChevronRight size={15} aria-hidden="true" /> Serie {setNum} lista</>}
-        </button>
+        {started ? (
+          <button type="button" className="btn btn-primary" style={{ padding: '11px' }} onClick={onCompleteSerie}>
+            {isLastSet
+              ? <><Check size={15} aria-hidden="true" /> Terminar ejercicio</>
+              : <><ChevronRight size={15} aria-hidden="true" /> Serie {setNum} lista</>}
+          </button>
+        ) : (
+          <button type="button" className="btn btn-primary" style={{ padding: '11px' }} onClick={onBegin}>
+            <Play size={15} aria-hidden="true" /> Empezar ejercicio
+          </button>
+        )}
       </div>
     </motion.div>
+  );
+}
+
+/** Equipo necesario, legible. Acepta array (del catálogo) o texto suelto. */
+function equipmentLabel(equipment) {
+  if (Array.isArray(equipment)) return equipment.filter(Boolean).join(' · ');
+  return typeof equipment === 'string' ? equipment.trim() : '';
+}
+
+/** Alternativas sugeridas por el backend cuando el ejercicio no es viable. */
+function AlternativesPanel({ panel, onChoose, onRetry, onDismiss }) {
+  const busy = panel.status === 'loading' || panel.status === 'applying';
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+      transition={{ duration: 0.18 }}
+      className="rounded-2xl border border-border bg-surface2 p-3.5 mb-3"
+      aria-label="Ejercicios alternativos"
+      aria-busy={busy}
+    >
+      <div className="flex items-center gap-2 mb-2.5">
+        <p className="text-[10px] text-accent font-semibold uppercase tracking-wider">Alternativas</p>
+        <div className="flex-1" />
+        <button
+          type="button"
+          className="w-6 h-6 rounded-md bg-surface flex items-center justify-center border-none cursor-pointer"
+          onClick={onDismiss}
+          aria-label="Cerrar alternativas"
+        >
+          <X size={12} className="text-txt3" aria-hidden="true" />
+        </button>
+      </div>
+
+      {panel.error && (
+        <p className="flex items-start gap-2 text-xs text-txt2 leading-relaxed mb-2.5" role="alert">
+          <AlertCircle size={13} className="text-accent shrink-0 mt-0.5" aria-hidden="true" />
+          {panel.error}
+        </p>
+      )}
+
+      {panel.status === 'loading' && (
+        <p className="flex items-center gap-2 text-xs text-txt3 py-2" role="status">
+          <Loader2 size={13} className="text-accent animate-spin" aria-hidden="true" />
+          Buscando alternativas…
+        </p>
+      )}
+
+      {panel.status === 'applying' && (
+        <p className="flex items-center gap-2 text-xs text-txt3 py-2" role="status">
+          <Loader2 size={13} className="text-accent animate-spin" aria-hidden="true" />
+          Cambiando el ejercicio…
+        </p>
+      )}
+
+      {panel.status === 'empty' && (
+        <p className="text-xs text-txt3 py-1">
+          No encontramos alternativas para este ejercicio. Continúa con el actual.
+        </p>
+      )}
+
+      {panel.status === 'error' && (
+        <button type="button" className="btn btn-surface" style={{ padding: '9px' }} onClick={onRetry}>
+          <RefreshCw size={14} aria-hidden="true" /> Reintentar
+        </button>
+      )}
+
+      {panel.status === 'ready' && (
+        <ul className="list-none flex flex-col gap-2">
+          {panel.options.map(alt => (
+            <AlternativeOption key={alt.id} alt={alt} onChoose={() => onChoose(alt)} />
+          ))}
+        </ul>
+      )}
+    </motion.section>
+  );
+}
+
+/**
+ * Una alternativa. La fila despliega el desglose; sustituir exige un botón
+ * aparte, porque con la fila desplegable un toque para mirar cambiaría el
+ * ejercicio sin querer.
+ */
+function AlternativeOption({ alt, onChoose }) {
+  const [open, setOpen] = useState(false);
+  const detailId = `alt-detalle-${alt.id}`;
+
+  return (
+    <li className="rounded-xl border border-border bg-surface overflow-hidden">
+      <button
+        type="button"
+        className="w-full text-left px-3 py-2.5 bg-transparent border-none cursor-pointer"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        aria-controls={detailId}
+      >
+        <span className="flex items-center gap-2">
+          <span className="flex-1 min-w-0 text-xs font-semibold text-txt leading-snug">{alt.name}</span>
+          {alt.score !== null && alt.score !== undefined && (
+            <span className="text-[11px] font-bold text-accent shrink-0">{alt.score}%</span>
+          )}
+          <ChevronDown
+            size={13}
+            className={`text-txt3 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+            aria-hidden="true"
+          />
+        </span>
+        {alt.reason && (
+          <span className="block text-[10px] text-txt3 mt-0.5 leading-relaxed">{alt.reason}</span>
+        )}
+        {/* `equipment` es un array: sin unirlo, React concatena los
+            elementos y se lee "mancuernasbanco". */}
+        {equipmentLabel(alt.equipment) && (
+          <span className="inline-block text-[10px] text-txt2 bg-surface2 rounded px-1.5 py-0.5 mt-1.5">
+            {equipmentLabel(alt.equipment)}
+          </span>
+        )}
+      </button>
+
+      <div id={detailId} hidden={!open} className="px-3 pb-3">
+        {alt.breakdown && (
+          <dl className="flex flex-col gap-1.5 mb-3">
+            <ScoreRow label="Músculos" value={alt.breakdown.muscular} />
+            <ScoreRow label="Biomecánica" value={alt.breakdown.biomecanica} />
+            <ScoreRow label="Fatiga" value={alt.breakdown.fatiga} />
+          </dl>
+        )}
+        <button
+          type="button"
+          className="btn btn-primary"
+          style={{ padding: '9px' }}
+          onClick={onChoose}
+        >
+          <RefreshCw size={13} aria-hidden="true" /> Cambiar a este ejercicio
+        </button>
+      </div>
+    </li>
+  );
+}
+
+/** Una dimensión del desglose. Sin dato se muestra "—", nunca un 0 inventado. */
+function ScoreRow({ label, value }) {
+  const known = value !== null && value !== undefined;
+  return (
+    <div className="flex items-center gap-2">
+      <dt className="text-[10px] text-txt3 w-20 shrink-0">{label}</dt>
+      <dd className="flex-1 flex items-center gap-2 m-0">
+        <span className="flex-1 h-1 rounded-full bg-surface2 overflow-hidden">
+          <span className="block h-full bg-accent rounded-full" style={{ width: known ? `${value}%` : 0 }} />
+        </span>
+        <span className="text-[10px] text-txt2 font-medium w-8 text-right">{known ? `${value}%` : '—'}</span>
+      </dd>
+    </div>
   );
 }
 
