@@ -193,6 +193,47 @@ describe('POST /api/ai/generate-plan', () => {
     expect(ctx.groq.calls[0].messages[1].content).toContain('EXACTAMENTE 6 sesiones');
   });
 
+  it('restringe la IA al catálogo y enlaza exercise_id', async () => {
+    const catalog = [
+      { id: 'cat-press', name: 'Press Banca con Barra', muscle_groups: ['pecho', 'tríceps'], equipment: ['barra', 'banco'], exercise_type: 'strength' },
+      { id: 'cat-remo', name: 'Remo con Barra', muscle_groups: ['espalda', 'bíceps'], equipment: ['barra'], exercise_type: 'strength' },
+    ];
+
+    ctx = createTestApp({
+      groqReply: JSON.stringify(VALID_PLAN),
+      resolver: planResolver({ exercises: () => ({ data: catalog, error: null }) }),
+    });
+
+    const res = await request(ctx.app).post('/api/ai/generate-plan').set(authHeader).send({});
+    expect(res.status).toBe(200);
+
+    // El catálogo se lee público y viaja en el prompt.
+    const catalogQuery = ctx.supabase.queriesFor('exercises')[0];
+    expect(hasFilter(catalogQuery, 'eq', 'is_public', true)).toBe(true);
+
+    const prompt = ctx.groq.calls[0].messages[1].content;
+    expect(prompt).toContain('CATÁLOGO DE EJERCICIOS PERMITIDOS');
+    expect(prompt).toContain('Press Banca con Barra');
+
+    // Los nombres del catálogo quedan enlazados; los inventados, no.
+    const rows = ctx.supabase.queriesFor('session_exercises').flatMap(q => q.payload);
+    expect(rows.find(r => r.exercise_name === 'Press Banca con Barra').exercise_id).toBe('cat-press');
+    expect(rows.find(r => r.exercise_name === 'Movilidad de hombro').exercise_id).toBeNull();
+  });
+
+  it('genera el plan igual si el catálogo no se puede cargar', async () => {
+    // Un fallo leyendo el catálogo no puede dejar al usuario sin plan.
+    ctx = createTestApp({
+      groqReply: JSON.stringify(VALID_PLAN),
+      resolver: planResolver({ exercises: () => ({ data: null, error: { message: 'catálogo caído' } }) }),
+    });
+
+    const res = await request(ctx.app).post('/api/ai/generate-plan').set(authHeader).send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body.sessions_created).toBe(2);
+  });
+
   it('cuenta sólo las sesiones realmente creadas', async () => {
     let inserts = 0;
     ctx = createTestApp({

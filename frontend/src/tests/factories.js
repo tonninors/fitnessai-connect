@@ -45,6 +45,24 @@ export function makeSession(over = {}) {
   };
 }
 
+/** Alternativa sugerida por el backend cuando el usuario no puede hacer un ejercicio. */
+export function makeAlternative(over = {}) {
+  return {
+    id: nextId('alt'),
+    name: 'Press con Mancuernas',
+    muscle_groups: ['pecho', 'tríceps'],
+    equipment: 'Mancuernas',
+    image_url: null,
+    video_url: null,
+    description: 'Mismo patrón de empuje con menos carga axial en el hombro.',
+    reason: 'Trabaja el mismo grupo muscular sin barra.',
+    // El motor de similitud del backend calcula ambos; la IA solo pone la razón.
+    score: 86,
+    breakdown: { muscular: 91, biomecanica: 76, fatiga: 48 },
+    ...over,
+  };
+}
+
 export function makePlan(over = {}) {
   return {
     id: nextId('plan'),
