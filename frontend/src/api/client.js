@@ -1,38 +1,62 @@
 import { createClient } from '@supabase/supabase-js';
 
-// ── Supabase client (auth + realtime) ──────────────────────────
+// ── Supabase (auth + realtime) ──────────────────────────────────
 export const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
+  import.meta.env.VITE_SUPABASE_ANON_KEY,
 );
 
-// ── REST API client ─────────────────────────────────────────────
+// ── Cliente REST ────────────────────────────────────────────────
 const BASE = import.meta.env.VITE_API_URL || '/api';
 
-async function request(path, options = {}) {
-  const { data: { session } } = await supabase.auth.getSession();
-  const token = session?.access_token;
+/** Tiempo máximo por petición: evita spinners eternos si el backend no responde. */
+export const REQUEST_TIMEOUT_MS = 30_000;
 
-  const res = await fetch(`${BASE}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    ...options,
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
+async function request(path, { method = 'GET', body, signal } = {}) {
+  const { data } = await supabase.auth.getSession();
+  const token = data?.session?.access_token;
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || 'Request failed');
+  // `AbortSignal.timeout` no existe en navegadores antiguos ni en algunos
+  // entornos de test: se cae a la petición sin timeout.
+  const timeoutSignal = signal
+    ?? (typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+      ? AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+      : undefined);
+
+  let res;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: timeoutSignal,
+    });
+  } catch (err) {
+    if (err?.name === 'AbortError' || err?.name === 'TimeoutError') {
+      throw new Error('La petición tardó demasiado. Revisa tu conexión.');
+    }
+    throw new Error('No se pudo conectar con el servidor.');
   }
 
-  return res.json();
+  if (!res.ok) {
+    // El backend devuelve `{ error }`; ante un 502 de un proxy puede llegar
+    // HTML, así que se cae al statusText en vez de reventar el JSON.parse.
+    const payload = await res.json().catch(() => null);
+    const error = new Error(payload?.error || res.statusText || 'Request failed');
+    error.status = res.status;
+    throw error;
+  }
+
+  if (res.status === 204) return null;
+  return res.json().catch(() => null);
 }
 
 export const api = {
-  get:    (path)         => request(path),
-  post:   (path, body)   => request(path, { method: 'POST',  body }),
-  patch:  (path, body)   => request(path, { method: 'PATCH', body }),
-  delete: (path)         => request(path, { method: 'DELETE' }),
+  get: (path, options) => request(path, { ...options, method: 'GET' }),
+  post: (path, body, options) => request(path, { ...options, method: 'POST', body: body ?? {} }),
+  patch: (path, body, options) => request(path, { ...options, method: 'PATCH', body: body ?? {} }),
+  delete: (path, options) => request(path, { ...options, method: 'DELETE' }),
 };

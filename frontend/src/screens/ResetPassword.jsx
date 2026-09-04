@@ -43,23 +43,23 @@ export default function ResetPassword({ onDone }) {
 
         <form onSubmit={handleSubmit}>
           <div className="input-group">
-            <label className="text-xs text-txt3 font-medium mb-1.5 block">Nueva contraseña</label>
+            <label htmlFor="reset-password" className="text-xs text-txt3 font-medium mb-1.5 block">Nueva contraseña</label>
             <input
               className="w-full min-w-0 bg-surface2 border border-border rounded-xl px-4 py-3 text-sm text-txt outline-none focus:border-accent transition-colors"
-              type="password" value={password} placeholder="••••••••"
+              id="reset-password" type="password" value={password} placeholder="••••••••" autoComplete="new-password"
               onChange={e => setPassword(e.target.value)} required minLength={6}
             />
           </div>
           <div className="input-group">
-            <label className="text-xs text-txt3 font-medium mb-1.5 block">Confirmar contraseña</label>
+            <label htmlFor="reset-confirm" className="text-xs text-txt3 font-medium mb-1.5 block">Confirmar contraseña</label>
             <input
               className="w-full min-w-0 bg-surface2 border border-border rounded-xl px-4 py-3 text-sm text-txt outline-none focus:border-accent transition-colors"
-              type="password" value={confirm} placeholder="••••••••"
+              id="reset-confirm" type="password" value={confirm} placeholder="••••••••" autoComplete="new-password"
               onChange={e => setConfirm(e.target.value)} required minLength={6}
             />
           </div>
 
-          {error && <p className="text-red-400 text-xs text-center py-2">{error}</p>}
+          {error && <p className="text-red-400 text-xs text-center py-2" role="alert">{error}</p>}
 
           <button type="submit" className="btn btn-primary" disabled={loading}>
             {loading ? 'Guardando...' : 'Actualizar contraseña'}

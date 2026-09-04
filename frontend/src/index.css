@@ -141,6 +141,24 @@ body {
 }
 
 /* ── LIVE METRICS ── */
+/* Estas dos clases se usaban en WorkoutModal pero nunca estuvieron definidas:
+   las tarjetas de FC / Kcal / Tiempo se apilaban sin fondo ni borde. */
+.metrics-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.metric-card {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 12px 6px;
+  background: var(--color-surface2);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  text-align: center;
+}
+
 .live-badge {
   display: flex; align-items: center; gap: 6px;
   background: rgba(239,68,68,0.12); color: #ef4444;
@@ -223,14 +241,8 @@ body {
 .progress-bar-bg { background: var(--color-surface2); border-radius: 6px; height: 6px; overflow: hidden; }
 .progress-bar-fill { height: 100%; border-radius: 6px; background: var(--color-accent); transition: width 0.5s; }
 
-/* ── RING ANIMATION ── */
-@keyframes ring-fill {
-  from { stroke-dashoffset: var(--ring-circ); }
-  to   { stroke-dashoffset: var(--ring-offset); }
-}
-
 /* ── PHONE SCENE ── */
-.phone-scene { display: flex; justify-content: center; align-items: flex-start; }
+.phone-scene { display: flex; justify-content: center; align-items: flex-start; width: 100%; }
 
 /* ── LOGIN CARD ── */
 .login-card {
@@ -276,9 +288,49 @@ input[type="password"]::-webkit-textfield-decoration-container { display: none; 
   100% { background-position: -200% 0; }
 }
 
+/* ── ACCESIBILIDAD ── */
+/* Texto sólo para lectores de pantalla. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+/* Foco visible con teclado: antes ningún control lo mostraba
+   (`outline: none` global de Tailwind + botones sin estilo de foco). */
+:where(button, a, input, textarea, select, [role="switch"], [role="radio"]):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+button:disabled { cursor: default; }
+
+/* ── RESPONSIVE ──
+   El marco de teléfono es un decorado de escritorio. En pantallas reales de
+   móvil ocupaba 390×844 fijos y desbordaba: ahora se expande a pantalla
+   completa y se quitan el marco y el notch. */
+@media (max-width: 460px), (max-height: 900px) {
+  body { padding: 0; }
+  .phone-frame {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+@media (max-width: 460px) {
+  .phone-notch { display: none; }
+  .status-bar  { display: none; }
+  .screen      { padding-top: 16px; }
+  .screen--chat { padding-top: 0; }
+}
+
 /* ── REDUCED MOTION ── */
 @media (prefers-reduced-motion: reduce) {
   .skeleton { animation: none; background: var(--color-surface2); }
   .live-dot  { animation: none; }
   .onboard-dot { transition: none; }
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

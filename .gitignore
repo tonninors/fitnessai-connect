@@ -33,3 +33,8 @@ npm-debug.log*
 
 # Vite runtime cache
 frontend/vite.config.js.timestamp-*.mjs
+
+# Coverage
+coverage/
+backend/coverage/
+frontend/coverage/

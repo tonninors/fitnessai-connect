@@ -1,17 +1,32 @@
 import { Router } from 'express';
-import { createClient } from '@supabase/supabase-js';
 import { requireAuth } from '../middleware/auth.js';
+import { getSupabase } from '../config/supabase.js';
+import { asyncHandler, throwOnSupabaseError, badRequest } from '../lib/http.js';
+import { pickAllowed, requireEnum, optionalText } from '../lib/validation.js';
 
-const router   = Router();
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+const router = Router();
+
+/** Campos que el usuario puede modificar de su propio perfil. */
+export const EDITABLE_PROFILE_FIELDS = [
+  'full_name',
+  'goals',
+  'availability',
+  'notifications',
+  'avatar_url',
+  'onboarding_completed',
+];
+
+export const WEARABLE_PLATFORMS = ['apple_health', 'garmin', 'google_fit', 'fitbit'];
 
 // GET perfil completo
-router.get('/', requireAuth, async (req, res) => {
+router.get('/', requireAuth, asyncHandler(async (req, res) => {
+  const supabase = getSupabase();
+
   const [profileRes, wearablesRes, statsRes] = await Promise.all([
     supabase.from('profiles')
       .select('*, trainer_profiles(full_name, rating, active_clients, specialties, instagram)')
       .eq('id', req.user.id)
-      .single(),
+      .maybeSingle(),
 
     supabase.from('wearable_connections')
       .select('platform, device_name, connected, last_sync_at')
@@ -23,67 +38,87 @@ router.get('/', requireAuth, async (req, res) => {
       .eq('status', 'completed'),
   ]);
 
-  if (profileRes.error) return res.status(400).json({ error: profileRes.error.message });
+  throwOnSupabaseError(profileRes.error);
+  if (!profileRes.data) throw badRequest('Perfil no encontrado');
 
+  // Los tokens OAuth de los wearables nunca salen de la base de datos: el
+  // SELECT de arriba los excluye explícitamente.
   res.json({
     ...profileRes.data,
-    email:      req.user.email,
-    wearables:  wearablesRes.data || [],
+    email: req.user.email,
+    wearables: wearablesRes.data || [],
     total_sessions: statsRes.data?.length || 0,
   });
-});
+}));
 
-// PATCH actualizar perfil
-router.patch('/', requireAuth, async (req, res) => {
-  const allowed = ['full_name', 'goals', 'availability', 'notifications', 'avatar_url', 'onboarding_completed'];
-  const updates = Object.fromEntries(
-    Object.entries(req.body).filter(([k]) => allowed.includes(k))
-  );
+// PATCH actualizar perfil (whitelist estricta)
+router.patch('/', requireAuth, asyncHandler(async (req, res) => {
+  const updates = pickAllowed(req.body, EDITABLE_PROFILE_FIELDS);
+
+  if (Object.keys(updates).length === 0) {
+    throw badRequest(`Nada que actualizar. Campos permitidos: ${EDITABLE_PROFILE_FIELDS.join(', ')}`);
+  }
+  if ('full_name' in updates) {
+    const name = optionalText(updates.full_name, 'full_name', { maxLength: 120 });
+    if (!name) throw badRequest('full_name no puede estar vacío');
+    updates.full_name = name;
+  }
+  if ('onboarding_completed' in updates && typeof updates.onboarding_completed !== 'boolean') {
+    throw badRequest('onboarding_completed debe ser booleano');
+  }
+
   updates.updated_at = new Date().toISOString();
 
+  const supabase = getSupabase();
   const { data, error } = await supabase
     .from('profiles')
     .update(updates)
     .eq('id', req.user.id)
     .select()
-    .single();
+    .maybeSingle();
 
-  if (error) return res.status(400).json({ error: error.message });
+  throwOnSupabaseError(error);
   res.json(data);
-});
+}));
 
 // POST conectar wearable
-router.post('/wearables', requireAuth, async (req, res) => {
-  const { platform, device_name, access_token, refresh_token } = req.body;
+router.post('/wearables', requireAuth, asyncHandler(async (req, res) => {
+  const platform = requireEnum(req.body?.platform, 'platform', WEARABLE_PLATFORMS);
+  const deviceName = optionalText(req.body?.device_name, 'device_name', { maxLength: 120 });
 
+  const supabase = getSupabase();
   const { data, error } = await supabase
     .from('wearable_connections')
     .upsert({
-      user_id:       req.user.id,
+      user_id: req.user.id,
       platform,
-      device_name,
-      connected:     true,
-      last_sync_at:  new Date().toISOString(),
-      access_token,   // cifrar en producción
-      refresh_token,
+      device_name: deviceName,
+      connected: true,
+      last_sync_at: new Date().toISOString(),
+      // TODO(seguridad): cifrar en reposo con pgcrypto antes de soportar OAuth real.
+      access_token: req.body?.access_token ?? null,
+      refresh_token: req.body?.refresh_token ?? null,
     }, { onConflict: 'user_id,platform' })
     .select('platform, device_name, connected, last_sync_at')
-    .single();
+    .maybeSingle();
 
-  if (error) return res.status(400).json({ error: error.message });
+  throwOnSupabaseError(error);
   res.json(data);
-});
+}));
 
 // DELETE desconectar wearable
-router.delete('/wearables/:platform', requireAuth, async (req, res) => {
+router.delete('/wearables/:platform', requireAuth, asyncHandler(async (req, res) => {
+  const platform = requireEnum(req.params.platform, 'platform', WEARABLE_PLATFORMS);
+
+  const supabase = getSupabase();
   const { error } = await supabase
     .from('wearable_connections')
-    .update({ connected: false })
+    .update({ connected: false, access_token: null, refresh_token: null })
     .eq('user_id', req.user.id)
-    .eq('platform', req.params.platform);
+    .eq('platform', platform);
 
-  if (error) return res.status(400).json({ error: error.message });
+  throwOnSupabaseError(error);
   res.json({ ok: true });
-});
+}));
 
 export default router;

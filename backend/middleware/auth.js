@@ -1,19 +1,32 @@
-import { createClient } from '@supabase/supabase-js';
+import { getSupabase } from '../config/supabase.js';
 
-// Usamos service_role para validar tokens del lado del servidor
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
+/**
+ * Valida el JWT de Supabase con la clave `service_role` y adjunta el usuario a
+ * la petición. No hace consulta adicional a la base de datos: la identidad se
+ * toma del token ya verificado por Supabase.
+ */
 export async function requireAuth(req, res, next) {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  if (!token) return res.status(401).json({ error: 'Token requerido' });
+  const header = req.headers.authorization ?? '';
+  const [scheme, token] = header.split(' ');
 
-  const { data: { user }, error } = await supabase.auth.getUser(token);
-  if (error || !user) return res.status(401).json({ error: 'Token inválido o expirado' });
+  if (!token || scheme?.toLowerCase() !== 'bearer') {
+    return res.status(401).json({ error: 'Token requerido' });
+  }
 
-  req.user    = user;
-  req.supabase = supabase;
-  next();
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.auth.getUser(token);
+
+    if (error || !data?.user) {
+      return res.status(401).json({ error: 'Token inválido o expirado' });
+    }
+
+    req.user = data.user;
+    req.supabase = supabase;
+    return next();
+  } catch (err) {
+    return next(err);
+  }
 }
+
+export default requireAuth;

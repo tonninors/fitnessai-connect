@@ -1,32 +1,44 @@
 import { Router } from 'express';
-import { createClient } from '@supabase/supabase-js';
 import { requireAuth } from '../middleware/auth.js';
+import { getSupabase } from '../config/supabase.js';
+import { asyncHandler } from '../lib/http.js';
+import { todayISO, getWeekRange, currentHour, greetingFor } from '../lib/dates.js';
+import { ringPercent } from '../lib/progress.js';
 
-const router   = Router();
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+const router = Router();
 
-router.get('/', requireAuth, async (req, res) => {
+/** Objetivos diarios de los anillos de actividad (minutos). */
+export const MOVEMENT_GOAL_MIN = 30;
+export const EXERCISE_GOAL_MIN = 20;
+
+router.get('/', requireAuth, asyncHandler(async (req, res) => {
+  const supabase = getSupabase();
   const userId = req.user.id;
-  const today  = new Date().toISOString().split('T')[0];
-  try {
+  const today = todayISO();
+  const { monday, sunday } = getWeekRange(today);
 
-  // Semana actual (lunes → domingo)
-  const todayDate  = new Date(today);
-  const dayOfWeek  = todayDate.getDay(); // 0=Dom
-  const diffToMon  = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
-  const monday     = new Date(todayDate); monday.setDate(todayDate.getDate() + diffToMon);
-  const sunday     = new Date(monday);   sunday.setDate(monday.getDate() + 6);
-  const mondayStr  = monday.toISOString().split('T')[0];
-  const sundayStr  = sunday.toISOString().split('T')[0];
-
-  const [profileRes, sessionRes, insightRes, metricsRes, nextSessionRes, weekSessionsRes] = await Promise.all([
+  const [
+    profileRes,
+    sessionRes,
+    insightRes,
+    metricsRes,
+    nextSessionRes,
+    weekSessionsRes,
+    completedTodayRes,
+  ] = await Promise.all([
     supabase.from('profiles')
       .select('full_name, current_streak, subscription_plan, trainer_id, trainer_profiles(full_name, rating, active_clients, specialties)')
       .eq('id', userId)
-      .single(),
+      .maybeSingle(),
 
     supabase.from('workout_sessions')
-      .select('id, name, estimated_duration, estimated_calories, rpe_target, focus_areas, status, ai_insight, session_exercises(id, exercise_name, sets, reps, weight_kg, rest_seconds, completed)')
+      .select(`
+        id, name, day_order, estimated_duration, estimated_calories, rpe_target, focus_areas, status, ai_insight,
+        session_exercises(
+          id, exercise_name, exercise_id, order_num, sets, reps, weight_kg, rest_seconds, duration_seconds, exercise_type, completed,
+          exercises(image_url, video_url, description)
+        )
+      `)
       .eq('user_id', userId)
       .eq('scheduled_date', today)
       .neq('status', 'skipped')
@@ -61,46 +73,39 @@ router.get('/', requireAuth, async (req, res) => {
       .select('id, scheduled_date, status, day_order, week_number, workout_plans!inner(status)')
       .eq('user_id', userId)
       .eq('workout_plans.status', 'active')
-      .gte('scheduled_date', mondayStr)
-      .lte('scheduled_date', sundayStr)
+      .gte('scheduled_date', monday)
+      .lte('scheduled_date', sunday)
       .order('scheduled_date', { ascending: true }),
+
+    // Anillos de actividad: hasta que haya wearable real se derivan de las
+    // sesiones ya completadas hoy.
+    supabase.from('workout_sessions')
+      .select('actual_duration')
+      .eq('user_id', userId)
+      .eq('scheduled_date', today)
+      .eq('status', 'completed'),
   ]);
 
-  const hour    = new Date().getHours();
-  const greeting = hour < 12 ? 'Buenos días' : hour < 18 ? 'Buenas tardes' : 'Buenas noches';
+  const activeMinutes = (completedTodayRes.data || [])
+    .reduce((sum, s) => sum + (Number(s.actual_duration) || 0), 0);
 
-  // Activity rings: idealmente vendrían de HealthKit/Garmin.
-  // Por ahora los calculamos desde las sesiones completadas del día.
-  const { data: todayCompleted } = await supabase
-    .from('workout_sessions')
-    .select('actual_duration')
-    .eq('user_id', userId)
-    .eq('scheduled_date', today)
-    .eq('status', 'completed');
-
-  const activeMinutes = (todayCompleted || []).reduce((s, x) => s + (x.actual_duration || 0), 0);
-
-  const todaySession     = sessionRes.data;
-  const isTodayDone      = todaySession?.status === 'completed';
+  const todaySession = sessionRes.data;
+  const isTodayDone = todaySession?.status === 'completed';
 
   res.json({
-    greeting,
-    profile:      profileRes.data,
-    today_session:  isTodayDone ? null : todaySession,
-    next_session:   (!todaySession || isTodayDone) ? (nextSessionRes.data ?? null) : null,
-    ai_insight:     insightRes.data?.content ?? null,
+    greeting: greetingFor(currentHour()),
+    profile: profileRes.data ?? null,
+    today_session: isTodayDone ? null : (todaySession ?? null),
+    next_session: (!todaySession || isTodayDone) ? (nextSessionRes.data ?? null) : null,
+    ai_insight: insightRes.data?.content ?? null,
     activity_rings: {
-      movement: Math.min(100, Math.round(activeMinutes / 30 * 100)),  // objetivo: 30 min
-      exercise: Math.min(100, Math.round(activeMinutes / 20 * 100)),  // objetivo: 20 min
-      standing: metricsRes.data ? 80 : 0,                             // placeholder hasta wearable real
+      movement: ringPercent(activeMinutes, MOVEMENT_GOAL_MIN),
+      exercise: ringPercent(activeMinutes, EXERCISE_GOAL_MIN),
+      standing: metricsRes.data ? 80 : 0, // placeholder hasta integración con wearable
     },
-    hrv:           metricsRes.data?.hrv_score ?? null,
+    hrv: metricsRes.data?.hrv_score ?? null,
     week_sessions: weekSessionsRes.data ?? [],
   });
-  } catch (err) {
-    console.error('[home] error:', err);
-    res.status(500).json({ error: 'Error al cargar el dashboard' });
-  }
-});
+}));
 
 export default router;

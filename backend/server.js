@@ -1,44 +1,23 @@
-import express from 'express';
-import cors from 'cors';
 import dotenv from 'dotenv';
-import rateLimit from 'express-rate-limit';
-
-import homeRouter     from './routes/home.js';
-import workoutsRouter from './routes/workouts.js';
-import progressRouter from './routes/progress.js';
-import profileRouter  from './routes/profile.js';
-import aiRouter       from './routes/ai.js';
-import authRouter     from './routes/auth.js';
 
 dotenv.config();
 
-const app = express();
+// `createApp` se importa después de cargar el .env porque los routers leen
+// variables de entorno al inicializarse.
+const { createApp } = await import('./app.js');
 
-app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
-  credentials: true,
-}));
-app.use(express.json());
-app.use(rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === 'production' ? 100 : 1000,
-  standardHeaders: true,
-  message: { error: 'Demasiadas solicitudes. Intenta de nuevo en unos minutos.' },
-}));
+const REQUIRED_ENV = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
+const missing = REQUIRED_ENV.filter(key => !process.env[key]);
+if (missing.length > 0) {
+  console.error(`[api] Faltan variables de entorno obligatorias: ${missing.join(', ')}`);
+  process.exit(1);
+}
 
-app.use('/api/home',      homeRouter);
-app.use('/api/workouts',  workoutsRouter);
-app.use('/api/progress',  progressRouter);
-app.use('/api/profile',   profileRouter);
-app.use('/api/ai',        aiRouter);
-app.use('/api/auth',      authRouter);
+if (!process.env.GROQ_API_KEY) {
+  console.warn('[api] GROQ_API_KEY no está definida: los endpoints de IA responderán 503.');
+}
 
-app.get('/health', (_req, res) => res.json({ status: 'ok', ts: Date.now() }));
-
-app.use((err, _req, res, _next) => {
-  console.error(err);
-  res.status(500).json({ error: err.message || 'Internal server error' });
-});
-
+const app = createApp();
 const PORT = process.env.PORT || 3000;
+
 app.listen(PORT, () => console.log(`FitnessAI API → http://localhost:${PORT}`));
