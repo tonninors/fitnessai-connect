@@ -32,7 +32,13 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
       .maybeSingle(),
 
     supabase.from('workout_sessions')
-      .select('id, name, day_order, estimated_duration, estimated_calories, rpe_target, focus_areas, status, ai_insight, session_exercises(id, exercise_name, order_num, sets, reps, weight_kg, rest_seconds, duration_seconds, exercise_type, completed)')
+      .select(`
+        id, name, day_order, estimated_duration, estimated_calories, rpe_target, focus_areas, status, ai_insight,
+        session_exercises(
+          id, exercise_name, exercise_id, order_num, sets, reps, weight_kg, rest_seconds, duration_seconds, exercise_type, completed,
+          exercises(image_url, video_url, description)
+        )
+      `)
       .eq('user_id', userId)
       .eq('scheduled_date', today)
       .neq('status', 'skipped')

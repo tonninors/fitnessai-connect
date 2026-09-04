@@ -5,10 +5,29 @@ import { asyncHandler, throwOnSupabaseError, forbidden, notFound } from '../lib/
 import { optionalInt, optionalNumber, requireUuid } from '../lib/validation.js';
 import { todayISO, addDays } from '../lib/dates.js';
 import { computeStreak } from '../lib/streak.js';
+import { chat } from '../lib/groq.js';
+import {
+  ALTERNATIVES_SYSTEM_PROMPT,
+  buildAlternativesPrompt,
+  fallbackAlternatives,
+  parseAlternatives,
+  rankCandidates,
+} from '../lib/alternatives.js';
+import { buildCatalogIndex, normalizeExerciseName } from '../lib/plan.js';
 
 const router = Router();
 
 const UPCOMING_LIMIT = 5;
+const ALTERNATIVES_MAX_TOKENS = 400;
+
+/** Columnas del catálogo que necesitan las alternativas y la media enlazada. */
+const CATALOG_COLUMNS = 'id, name, muscle_groups, equipment, description, image_url, video_url, exercise_type, '
+  + 'movement_pattern, movement_angle, muscle_map, joint_actions, rom, muscle_length_bias, '
+  + 'resistance_profile, body_support, stability_demand, laterality, is_compound, kinetic_chain, fatigue';
+
+/** Columnas de `session_exercises` que devuelve la sustitución. */
+const SUBSTITUTE_COLUMNS =
+  'id, exercise_name, exercise_id, sets, reps, weight_kg, rest_seconds, duration_seconds, exercise_type, order_num, completed, exercises(image_url, video_url, description)';
 
 /**
  * Comprueba que la sesión pertenece al usuario autenticado.
@@ -36,7 +55,7 @@ async function assertExerciseInSession(supabase, exerciseId, sessionId) {
 
   const { data, error } = await supabase
     .from('session_exercises')
-    .select('id, sets')
+    .select('id, sets, exercise_id, exercise_name, exercise_type')
     .eq('id', exerciseId)
     .eq('session_id', sessionId)
     .maybeSingle();
@@ -44,6 +63,28 @@ async function assertExerciseInSession(supabase, exerciseId, sessionId) {
   if (error) throwOnSupabaseError(error);
   if (!data) throw notFound('Ejercicio no encontrado en esta sesión');
   return data;
+}
+
+/**
+ * Catálogo público de ejercicios (fuente de las alternativas y de la media).
+ *
+ * Un fallo aquí NO se propaga como 5xx: el usuario está a mitad de un
+ * entrenamiento y un catálogo inaccesible (típicamente porque falta aplicar el
+ * bloque MIGRACIONES y no existe `exercises.exercise_type`) debe traducirse en
+ * "no hay alternativas", no en un error rojo con un reintento que nunca va a
+ * funcionar. El motivo real queda en el log del servidor.
+ */
+async function loadCatalog(supabase) {
+  const { data, error } = await supabase
+    .from('exercises')
+    .select(CATALOG_COLUMNS)
+    .eq('is_public', true);
+
+  if (error) {
+    console.error('[workouts] no se pudo cargar el catálogo de ejercicios:', error.message);
+    return [];
+  }
+  return Array.isArray(data) ? data : [];
 }
 
 // GET plan activo con sesiones
@@ -56,7 +97,10 @@ router.get('/plan', requireAuth, asyncHandler(async (req, res) => {
       trainer_profiles(full_name, rating),
       workout_sessions(
         id, name, scheduled_date, status, estimated_duration, focus_areas, rpe_target, week_number, day_order,
-        session_exercises(id, exercise_name, order_num, sets, reps, weight_kg, rest_seconds, duration_seconds, exercise_type, completed)
+        session_exercises(
+          id, exercise_name, exercise_id, order_num, sets, reps, weight_kg, rest_seconds, duration_seconds, exercise_type, completed,
+          exercises(image_url, video_url, description)
+        )
       )
     `)
     .eq('user_id', req.user.id)
@@ -196,6 +240,124 @@ router.post('/sessions/:sessionId/exercises/:exerciseId/sets', requireAuth, asyn
   throwOnSupabaseError(error);
   res.json(data);
 }));
+
+// POST alternativas para un ejercicio de la sesión
+router.post('/sessions/:sessionId/exercises/:exerciseId/alternatives', requireAuth, asyncHandler(async (req, res) => {
+  const supabase = getSupabase();
+  const { sessionId, exerciseId } = req.params;
+
+  await assertSessionOwnership(supabase, sessionId, req.user.id);
+  const exercise = await assertExerciseInSession(supabase, exerciseId, sessionId);
+
+  const catalog = await loadCatalog(supabase);
+
+  // La huella biomecánica del original sale del catálogo. Si el ejercicio no
+  // quedó enlazado (planes generados antes de que el catálogo existiera) se
+  // resuelve por nombre normalizado: sin esto no hay nada que comparar y las
+  // alternativas acababan saliendo por orden alfabético.
+  const catalogRow = (exercise.exercise_id
+    ? catalog.find(row => row.id === exercise.exercise_id)
+    : buildCatalogIndex(catalog).get(normalizeExerciseName(exercise.exercise_name))) ?? null;
+
+  const current = {
+    ...(catalogRow ?? {}),
+    exercise_id: exercise.exercise_id ?? catalogRow?.id ?? null,
+    exercise_name: exercise.exercise_name,
+    exercise_type: exercise.exercise_type ?? catalogRow?.exercise_type ?? 'strength',
+    muscle_groups: catalogRow?.muscle_groups ?? [],
+    equipment: catalogRow?.equipment ?? [],
+  };
+
+  const ranked = rankCandidates(catalog, current);
+  if (ranked.length === 0) return res.json({ alternatives: [] });
+  const candidates = ranked.map(entry => entry.row);
+
+  // La IA sólo redacta la razón: el ranking ya lo decidió el motor de
+  // similitud. Si falla o devuelve basura se sirve el respaldo con el mismo
+  // orden, así que solo se pierde la prosa. El usuario está a mitad de un
+  // entrenamiento y este endpoint nunca debe bloquearlo con un 502.
+  let alternatives = [];
+  try {
+    const text = await chat([
+      { role: 'system', content: ALTERNATIVES_SYSTEM_PROMPT },
+      { role: 'user', content: buildAlternativesPrompt(current, candidates) },
+    ], { maxTokens: ALTERNATIVES_MAX_TOKENS });
+    alternatives = parseAlternatives(text, ranked);
+  } catch (err) {
+    console.warn('[workouts] alternativas sin IA, se usa el respaldo:', err.message);
+  }
+
+  if (alternatives.length === 0) alternatives = fallbackAlternatives(ranked);
+
+  res.json({ alternatives });
+}));
+
+// PATCH sustituir un ejercicio por otro del catálogo (sólo en esta sesión)
+router.patch('/sessions/:sessionId/exercises/:exerciseId/substitute', requireAuth, asyncHandler(async (req, res) => {
+  const supabase = getSupabase();
+  const { sessionId, exerciseId } = req.params;
+
+  const targetId = requireUuid(req.body?.exercise_id, 'exercise_id');
+
+  await assertSessionOwnership(supabase, sessionId, req.user.id);
+  await assertExerciseInSession(supabase, exerciseId, sessionId);
+
+  const { data: target, error: targetErr } = await supabase
+    .from('exercises')
+    .select('id, name')
+    .eq('id', targetId)
+    .eq('is_public', true)
+    .maybeSingle();
+
+  throwOnSupabaseError(targetErr);
+  if (!target) throw notFound('Ejercicio no encontrado en el catálogo');
+
+  // Sólo esta fila: la sustitución vale para esta sesión, no para el plan ni
+  // para las demás sesiones. El resto de columnas (sets, reps, weight_kg,
+  // rest_seconds, duration_seconds, exercise_type, order_num) se conserva.
+  const { data, error } = await supabase
+    .from('session_exercises')
+    .update({ exercise_id: target.id, exercise_name: target.name })
+    .eq('id', exerciseId)
+    .eq('session_id', sessionId)
+    .select(SUBSTITUTE_COLUMNS)
+    .maybeSingle();
+
+  throwOnSupabaseError(error);
+  if (!data) throw notFound('Ejercicio no encontrado');
+
+  res.json({ exercise: toSubstitutedExercise(data) });
+}));
+
+/**
+ * Forma exacta que espera el cliente tras una sustitución.
+ * Se construye a mano para que el contrato no dependa de lo que devuelva
+ * PostgREST: `exercises` puede llegar como objeto, como array (relación
+ * anidada) o ausente.
+ */
+function toSubstitutedExercise(row) {
+  const media = Array.isArray(row.exercises) ? row.exercises[0] : row.exercises;
+  return {
+    id: row.id,
+    exercise_name: row.exercise_name,
+    exercise_id: row.exercise_id ?? null,
+    sets: row.sets ?? null,
+    reps: row.reps ?? null,
+    weight_kg: row.weight_kg ?? null,
+    rest_seconds: row.rest_seconds ?? null,
+    duration_seconds: row.duration_seconds ?? null,
+    exercise_type: row.exercise_type ?? 'strength',
+    order_num: row.order_num ?? null,
+    completed: row.completed ?? false,
+    exercises: media
+      ? {
+        image_url: media.image_url ?? null,
+        video_url: media.video_url ?? null,
+        description: media.description ?? null,
+      }
+      : null,
+  };
+}
 
 /**
  * Recalcula racha y nivel tras completar una sesión.

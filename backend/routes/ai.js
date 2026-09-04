@@ -27,6 +27,24 @@ const router = Router();
 const PLAN_TOTAL_WEEKS = 4;
 const PLAN_MAX_TOKENS = 6000;
 
+/**
+ * Catálogo público de ejercicios que la IA puede usar.
+ * Si la lectura falla se sigue con `[]`: el plan se genera igual (sin enlazar
+ * `exercise_id`) en lugar de dejar al usuario sin plan por un fallo del catálogo.
+ */
+async function loadCatalog(supabase) {
+  const { data, error } = await supabase
+    .from('exercises')
+    .select('id, name, muscle_groups, equipment, exercise_type')
+    .eq('is_public', true);
+
+  if (error) {
+    console.error('[ai] no se pudo cargar el catálogo de ejercicios:', error.message);
+    return [];
+  }
+  return Array.isArray(data) ? data : [];
+}
+
 // POST generar insight contextual
 router.post('/insight', requireAuth, asyncHandler(async (req, res) => {
   const supabase = getSupabase();
@@ -73,6 +91,10 @@ router.post('/generate-plan', requireAuth, asyncHandler(async (req, res) => {
   const equipment = optionalText(body.equipment, 'equipment', { maxLength: 300 }) ?? 'ninguno';
   const focusAreas = optionalText(body.focus_areas, 'focus_areas', { maxLength: 300 }) ?? goals;
 
+  // El catálogo se carga ANTES de llamar a la IA: el prompt la restringe a
+  // estos nombres y `toExerciseRows` los resuelve a `exercise_id`.
+  const catalog = await loadCatalog(supabase);
+
   const text = await chat([
     { role: 'system', content: PLAN_SYSTEM_PROMPT },
     {
@@ -84,6 +106,7 @@ router.post('/generate-plan', requireAuth, asyncHandler(async (req, res) => {
         equipment,
         focus_areas: focusAreas,
         cardio_minutes: cardioMinutes,
+        catalog,
       }),
     },
   ], { maxTokens: PLAN_MAX_TOKENS });
@@ -132,7 +155,7 @@ router.post('/generate-plan', requireAuth, asyncHandler(async (req, res) => {
       return false;
     }
 
-    const exerciseRows = toExerciseRows(session.exercises, savedSession.id);
+    const exerciseRows = toExerciseRows(session.exercises, savedSession.id, catalog);
     if (exerciseRows.length > 0) {
       const { error: exErr } = await supabase.from('session_exercises').insert(exerciseRows);
       if (exErr) console.error('[ai] no se pudieron crear los ejercicios:', exErr.message);
