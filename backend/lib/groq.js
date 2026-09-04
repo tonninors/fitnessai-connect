@@ -10,7 +10,7 @@ export const RETRY_DELAYS_MS = (process.env.GROQ_RETRY_DELAYS_MS || '2000,5000')
   .map(v => Number(v.trim()))
   .filter(v => Number.isFinite(v) && v >= 0);
 
-export const MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
+export const MODEL = 'openai/gpt-oss-120b';
 
 let client = null;
 
