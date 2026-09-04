@@ -45,6 +45,65 @@ export function dayOffsetsFor(days) {
   return DAY_OFFSETS[days] ?? DAY_OFFSETS[DEFAULT_DAYS_PER_WEEK];
 }
 
+/**
+ * Normaliza un nombre de ejercicio para compararlo: minúsculas, sin acentos,
+ * sin signos de puntuación y con los espacios colapsados.
+ * La IA devuelve "press banca con barra", "Press Banca Con Barra" o
+ * "Press banca  con barra" para la misma fila del catálogo.
+ */
+export function normalizeExerciseName(value) {
+  if (typeof value !== 'string') return '';
+  return value
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Índice `nombre normalizado → fila del catálogo`.
+ * Acepta ya un `Map` para no reconstruirlo en cada sesión del plan.
+ */
+export function buildCatalogIndex(catalog) {
+  if (catalog instanceof Map) return catalog;
+  const index = new Map();
+  for (const row of Array.isArray(catalog) ? catalog : []) {
+    const key = normalizeExerciseName(row?.name);
+    if (key !== '' && !index.has(key)) index.set(key, row);
+  }
+  return index;
+}
+
+/**
+ * Listado compacto del catálogo agrupado por bloque para el prompt.
+ * Formato por línea: `Nombre | músculos | equipo` — lo bastante corto para no
+ * disparar los tokens y lo bastante informativo para que la IA elija bien.
+ */
+export function buildCatalogSection(catalog) {
+  const rows = Array.isArray(catalog) ? catalog.filter(r => typeof r?.name === 'string' && r.name.trim() !== '') : [];
+  if (rows.length === 0) return '';
+
+  const blocks = EXERCISE_TYPES
+    .map((type) => {
+      const list = rows.filter(r => (EXERCISE_TYPES.includes(r.exercise_type) ? r.exercise_type : 'strength') === type);
+      if (list.length === 0) return null;
+      const lines = list.map((r) => {
+        const muscles = Array.isArray(r.muscle_groups) ? r.muscle_groups.join('/') : '';
+        const equipment = Array.isArray(r.equipment) && r.equipment.length > 0 ? r.equipment.join('/') : 'sin equipo';
+        // El patrón permite a la IA equilibrar empujes y tracciones en la
+        // sesión; sin él solo puede guiarse por los músculos.
+        const pattern = r.movement_pattern ? `${r.movement_pattern} | ` : '';
+        return `- ${r.name} | ${pattern}${muscles} | ${equipment}`;
+      });
+      return `[${type}]\n${lines.join('\n')}`;
+    })
+    .filter(Boolean);
+
+  return blocks.join('\n');
+}
+
 export const PLAN_SYSTEM_PROMPT =
   'Eres un entrenador personal certificado. Crea planes de entrenamiento en JSON estructurado y válido. ' +
   'Responde SOLO con JSON, sin texto extra, sin bloques de código markdown.';
@@ -57,7 +116,22 @@ export function buildPlanPrompt({
   equipment,
   focus_areas,
   cardio_minutes = 15,
+  catalog = [],
 }) {
+  const catalogSection = buildCatalogSection(catalog);
+  const catalogRules = catalogSection === ''
+    ? ''
+    : `
+CATÁLOGO DE EJERCICIOS PERMITIDOS (formato: nombre | músculos | equipo):
+${catalogSection}
+
+REGLA DE CATÁLOGO (la más importante):
+- Cada "exercise_name" debe ser EXACTAMENTE uno de los nombres del catálogo, copiado carácter por carácter (mismas tildes y mayúsculas).
+- NO inventes ejercicios ni uses sinónimos, traducciones o variantes que no estén en la lista.
+- Usa los ejercicios del bloque [warmup] para el calentamiento, [strength] para el bloque principal, [cardio] para el cardio y [cooldown] para el estiramiento.
+- Si el equipo disponible del usuario no encaja, elige la opción del catálogo más cercana en lugar de inventar una nueva.
+`;
+
   const cardioBlock = cardio_minutes === 0
     ? 'NO incluir este bloque'
     : `1 ejercicio cardiovascular variado (corre, escaladora, bicicleta estática, remo ergómetro) con duration_seconds: ${cardio_minutes * 60}, sets: 1. Sin reps ni weight_kg. Intensidad: objetivo ganar músculo → ligero; objetivo perder grasa → moderado-intenso.`;
@@ -68,7 +142,7 @@ export function buildPlanPrompt({
 - Nivel: ${fitness_level}
 - Equipo disponible: ${equipment}
 - Áreas de enfoque: ${focus_areas}
-
+${catalogRules}
 DISTRIBUCIÓN DE SESIONES (obligatoria):
 ${splitGuideFor(daysNum)}
 
@@ -216,20 +290,39 @@ export function toSessionRow(session, { planId, userId, startDate, daysNum, week
   };
 }
 
-/** Filas de `session_exercises` para una sesión ya persistida. */
-export function toExerciseRows(exercises, sessionId) {
+/**
+ * Filas de `session_exercises` para una sesión ya persistida.
+ *
+ * Resuelve cada `exercise_name` contra el catálogo para enlazar `exercise_id`
+ * (de ahí salen imagen, vídeo y las alternativas). La comparación se hace sobre
+ * el nombre normalizado, así que tildes y mayúsculas distintas siguen casando.
+ * Si no resuelve, la fila se conserva con `exercise_id: null`: descartarla
+ * dejaría al usuario sin ese ejercicio en la sesión.
+ */
+export function toExerciseRows(exercises, sessionId, catalog = []) {
+  const index = buildCatalogIndex(catalog);
+
   return (Array.isArray(exercises) ? exercises : [])
     .filter(ex => ex && typeof ex.exercise_name === 'string' && ex.exercise_name.trim() !== '')
-    .map((ex, idx) => ({
-      session_id: sessionId,
-      exercise_name: ex.exercise_name.trim(),
-      order_num: idx + 1,
-      // `sets` es NOT NULL en el schema: nunca lo dejamos nulo.
-      sets: Number.isInteger(ex.sets) && ex.sets > 0 ? ex.sets : 1,
-      reps: Number.isInteger(ex.reps) ? ex.reps : null,
-      weight_kg: Number.isFinite(ex.weight_kg) ? ex.weight_kg : null,
-      rest_seconds: Number.isInteger(ex.rest_seconds) ? ex.rest_seconds : null,
-      duration_seconds: Number.isInteger(ex.duration_seconds) ? ex.duration_seconds : null,
-      exercise_type: EXERCISE_TYPES.includes(ex.exercise_type) ? ex.exercise_type : 'strength',
-    }));
+    .map((ex, idx) => {
+      const name = ex.exercise_name.trim();
+      const match = index.get(normalizeExerciseName(name));
+      if (!match && index.size > 0) {
+        console.warn(`[plan] ejercicio fuera del catálogo, se guarda sin exercise_id: "${name}"`);
+      }
+      return {
+        session_id: sessionId,
+        // Se guarda el nombre canónico del catálogo cuando resuelve.
+        exercise_name: match?.name ?? name,
+        exercise_id: match?.id ?? null,
+        order_num: idx + 1,
+        // `sets` es NOT NULL en el schema: nunca lo dejamos nulo.
+        sets: Number.isInteger(ex.sets) && ex.sets > 0 ? ex.sets : 1,
+        reps: Number.isInteger(ex.reps) ? ex.reps : null,
+        weight_kg: Number.isFinite(ex.weight_kg) ? ex.weight_kg : null,
+        rest_seconds: Number.isInteger(ex.rest_seconds) ? ex.rest_seconds : null,
+        duration_seconds: Number.isInteger(ex.duration_seconds) ? ex.duration_seconds : null,
+        exercise_type: EXERCISE_TYPES.includes(ex.exercise_type) ? ex.exercise_type : 'strength',
+      };
+    });
 }

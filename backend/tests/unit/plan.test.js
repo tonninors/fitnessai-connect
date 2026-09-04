@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   normalizeDaysPerWeek,
   splitGuideFor,
@@ -9,8 +9,20 @@ import {
   scheduledDateFor,
   toSessionRow,
   toExerciseRows,
+  normalizeExerciseName,
+  buildCatalogIndex,
+  buildCatalogSection,
   SPLIT_GUIDE,
 } from '../../lib/plan.js';
+
+/** Catálogo reducido con la misma forma que devuelve Supabase. */
+const CATALOG = [
+  { id: 'ex-press', name: 'Press Banca con Barra', muscle_groups: ['pecho', 'tríceps'], equipment: ['barra', 'banco'], exercise_type: 'strength' },
+  { id: 'ex-sentadilla', name: 'Sentadilla con Barra', muscle_groups: ['cuádriceps', 'glúteos'], equipment: ['barra', 'rack'], exercise_type: 'strength' },
+  { id: 'ex-movilidad', name: 'Movilidad de Cadera 90/90', muscle_groups: ['cadera'], equipment: [], exercise_type: 'warmup' },
+  { id: 'ex-nino', name: 'Postura del Niño', muscle_groups: ['espalda baja'], equipment: [], exercise_type: 'cooldown' },
+  { id: 'ex-bici', name: 'Bicicleta Estática', muscle_groups: ['cardiovascular'], equipment: ['bicicleta estática'], exercise_type: 'cardio' },
+];
 
 describe('normalizeDaysPerWeek', () => {
   it('acepta números y strings dentro del rango', () => {
@@ -241,5 +253,140 @@ describe('toExerciseRows', () => {
   it('devuelve [] ante entradas inválidas', () => {
     expect(toExerciseRows(null, 's')).toEqual([]);
     expect(toExerciseRows(undefined, 's')).toEqual([]);
+  });
+
+  it('deja exercise_id nulo si no se pasa catálogo', () => {
+    const rows = toExerciseRows([{ exercise_name: 'Press Banca con Barra' }], 's');
+    expect(rows[0].exercise_id).toBeNull();
+  });
+});
+
+describe('normalizeExerciseName', () => {
+  it('quita acentos, mayúsculas y espacios sobrantes', () => {
+    expect(normalizeExerciseName('  Press   BANCA con Bárra ')).toBe('press banca con barra');
+    expect(normalizeExerciseName('Extensión Tríceps Cable')).toBe('extension triceps cable');
+  });
+
+  it('trata la puntuación como separador', () => {
+    expect(normalizeExerciseName('Movilidad de Cadera 90/90')).toBe('movilidad de cadera 90 90');
+  });
+
+  it('devuelve cadena vacía ante entradas no textuales', () => {
+    expect(normalizeExerciseName(null)).toBe('');
+    expect(normalizeExerciseName(42)).toBe('');
+  });
+});
+
+describe('buildCatalogIndex', () => {
+  it('indexa por nombre normalizado', () => {
+    const index = buildCatalogIndex(CATALOG);
+    expect(index.get('press banca con barra').id).toBe('ex-press');
+    expect(index.size).toBe(CATALOG.length);
+  });
+
+  it('reutiliza un Map ya construido', () => {
+    const index = buildCatalogIndex(CATALOG);
+    expect(buildCatalogIndex(index)).toBe(index);
+  });
+
+  it('tolera entradas vacías o inválidas', () => {
+    expect(buildCatalogIndex(null).size).toBe(0);
+    expect(buildCatalogIndex([{ name: '  ' }, null]).size).toBe(0);
+  });
+});
+
+describe('buildCatalogSection', () => {
+  it('agrupa por bloque en el orden de los tipos', () => {
+    const section = buildCatalogSection(CATALOG);
+    expect(section.indexOf('[warmup]')).toBeLessThan(section.indexOf('[strength]'));
+    expect(section.indexOf('[strength]')).toBeLessThan(section.indexOf('[cardio]'));
+    expect(section.indexOf('[cardio]')).toBeLessThan(section.indexOf('[cooldown]'));
+  });
+
+  it('incluye músculos y equipo de cada ejercicio', () => {
+    const section = buildCatalogSection(CATALOG);
+    expect(section).toContain('- Press Banca con Barra | pecho/tríceps | barra/banco');
+    expect(section).toContain('- Postura del Niño | espalda baja | sin equipo');
+  });
+
+  it('devuelve cadena vacía sin catálogo', () => {
+    expect(buildCatalogSection([])).toBe('');
+    expect(buildCatalogSection(null)).toBe('');
+  });
+});
+
+describe('buildPlanPrompt con catálogo', () => {
+  const base = {
+    goals: 'ganar músculo',
+    daysNum: 3,
+    fitness_level: 'intermediate',
+    equipment: 'gimnasio_completo',
+    focus_areas: 'pecho',
+  };
+
+  it('exige que los nombres salgan del catálogo', () => {
+    const prompt = buildPlanPrompt({ ...base, catalog: CATALOG });
+    expect(prompt).toContain('CATÁLOGO DE EJERCICIOS PERMITIDOS');
+    expect(prompt).toContain('Press Banca con Barra');
+    expect(prompt).toMatch(/EXACTAMENTE uno de los nombres del catálogo/);
+  });
+
+  it('omite la sección si el catálogo llega vacío', () => {
+    const prompt = buildPlanPrompt(base);
+    expect(prompt).not.toContain('CATÁLOGO DE EJERCICIOS PERMITIDOS');
+  });
+});
+
+describe('toExerciseRows: resolución contra el catálogo', () => {
+  it('enlaza exercise_id cuando el nombre coincide', () => {
+    const rows = toExerciseRows(
+      [{ exercise_name: 'Press Banca con Barra', exercise_type: 'strength', sets: 4, reps: 6 }],
+      'sess-1',
+      CATALOG,
+    );
+    expect(rows[0].exercise_id).toBe('ex-press');
+    expect(rows[0].exercise_name).toBe('Press Banca con Barra');
+  });
+
+  it('resuelve aunque cambien acentos, mayúsculas y espacios', () => {
+    const rows = toExerciseRows(
+      [
+        { exercise_name: 'press  banca CON barra' },
+        { exercise_name: 'MOVILIDAD DE CADERA 90/90', exercise_type: 'warmup' },
+        { exercise_name: 'bicicleta estatica', exercise_type: 'cardio' },
+      ],
+      'sess-1',
+      CATALOG,
+    );
+    expect(rows.map(r => r.exercise_id)).toEqual(['ex-press', 'ex-movilidad', 'ex-bici']);
+  });
+
+  it('guarda el nombre canónico del catálogo, no el que escribió la IA', () => {
+    const rows = toExerciseRows([{ exercise_name: 'sentadilla con barra' }], 'sess-1', CATALOG);
+    expect(rows[0].exercise_name).toBe('Sentadilla con Barra');
+  });
+
+  it('conserva el ejercicio con exercise_id nulo si no resuelve y avisa', () => {
+    // Nunca se descarta: el usuario se quedaría sin ese ejercicio en la sesión.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const rows = toExerciseRows(
+      [{ exercise_name: 'Press Banca con Barra' }, { exercise_name: 'Máquina inventada por la IA', sets: 3 }],
+      'sess-1',
+      CATALOG,
+    );
+
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toMatchObject({ exercise_name: 'Máquina inventada por la IA', exercise_id: null, sets: 3, order_num: 2 });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Máquina inventada por la IA'));
+
+    warn.mockRestore();
+  });
+
+  it('no avisa cuando no hay catálogo que consultar', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    toExerciseRows([{ exercise_name: 'Lo que sea' }], 'sess-1', []);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
