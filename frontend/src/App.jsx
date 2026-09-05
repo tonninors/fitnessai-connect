@@ -125,7 +125,7 @@ export default function App() {
 
   if (loading || profileLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-bg" role="status" aria-label="Cargando">
+      <div className="flex items-center justify-center min-h-dvh bg-bg" role="status" aria-label="Cargando">
         <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -136,7 +136,7 @@ export default function App() {
 
   if (profileError) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-bg gap-4 px-6 text-center" role="alert">
+      <div className="flex flex-col items-center justify-center min-h-dvh bg-bg gap-4 px-6 text-center" role="alert">
         <p className="text-txt font-semibold">No se pudo conectar al servidor</p>
         <p className="text-txt3 text-sm max-w-[320px] leading-relaxed">
           Asegúrate de que el backend esté corriendo en el puerto 3000.
