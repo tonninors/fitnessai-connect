@@ -18,6 +18,14 @@ describe('ResetPassword', () => {
     expect(screen.getByLabelText('Confirmar contraseña')).toBeInTheDocument();
   });
 
+  it('los dos botones de mostrar contraseña tienen nombres distintos', () => {
+    // Con la etiqueta por defecto los dos se llamarían igual y un lector de
+    // pantalla no podría distinguir cuál campo destapa cada uno.
+    render(<ResetPassword onDone={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Mostrar la nueva contraseña' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Mostrar la confirmación de contraseña' })).toBeInTheDocument();
+  });
+
   it('actualiza la contraseña y avisa al terminar', async () => {
     const onDone = vi.fn();
     render(<ResetPassword onDone={onDone} />);

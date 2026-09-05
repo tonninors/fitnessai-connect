@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { KeyRound } from 'lucide-react';
 import { supabase } from '../api/client.js';
+import PasswordField from '../components/PasswordField.jsx';
 
 export default function ResetPassword({ onDone }) {
   const [password,  setPassword]  = useState('');
@@ -42,22 +43,22 @@ export default function ResetPassword({ onDone }) {
         </motion.div>
 
         <form onSubmit={handleSubmit}>
-          <div className="input-group">
-            <label htmlFor="reset-password" className="text-xs text-txt3 font-medium mb-1.5 block">Nueva contraseña</label>
-            <input
-              className="w-full min-w-0 bg-surface2 border border-border rounded-xl px-4 py-3 text-sm text-txt outline-none focus:border-accent transition-colors"
-              id="reset-password" type="password" value={password} placeholder="••••••••" autoComplete="new-password"
-              onChange={e => setPassword(e.target.value)} required minLength={6}
-            />
-          </div>
-          <div className="input-group">
-            <label htmlFor="reset-confirm" className="text-xs text-txt3 font-medium mb-1.5 block">Confirmar contraseña</label>
-            <input
-              className="w-full min-w-0 bg-surface2 border border-border rounded-xl px-4 py-3 text-sm text-txt outline-none focus:border-accent transition-colors"
-              id="reset-confirm" type="password" value={confirm} placeholder="••••••••" autoComplete="new-password"
-              onChange={e => setConfirm(e.target.value)} required minLength={6}
-            />
-          </div>
+          <PasswordField
+            id="reset-password"
+            label="Nueva contraseña"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            autoComplete="new-password"
+            toggleLabel="Mostrar la nueva contraseña"
+          />
+          <PasswordField
+            id="reset-confirm"
+            label="Confirmar contraseña"
+            value={confirm}
+            onChange={e => setConfirm(e.target.value)}
+            autoComplete="new-password"
+            toggleLabel="Mostrar la confirmación de contraseña"
+          />
 
           {error && <p className="text-red-400 text-xs text-center py-2" role="alert">{error}</p>}
 

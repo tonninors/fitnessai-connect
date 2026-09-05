@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Dumbbell } from 'lucide-react';
 import { supabase, api } from '../api/client.js';
+import PasswordField from '../components/PasswordField.jsx';
 
 const INPUT_CLASS =
   'w-full min-w-0 bg-surface2 border border-border rounded-xl px-4 py-3 text-sm text-txt outline-none focus:border-accent transition-colors';
@@ -134,25 +135,14 @@ export default function Login() {
           </div>
 
           {mode !== 'forgot' && (
-            <div className="input-group">
-              <label htmlFor="login-password" className="text-xs text-txt3 font-medium mb-1.5 block">
-                Contraseña
-              </label>
-              <input
-                id="login-password"
-                className={INPUT_CLASS}
-                type="password"
-                value={password}
-                placeholder="••••••••"
-                autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
-                onChange={e => setPassword(e.target.value)}
-                required
-                minLength={6}
-              />
-              {mode === 'register' && (
-                <p className="text-[11px] text-txt3 mt-1.5">Mínimo 6 caracteres.</p>
-              )}
-            </div>
+            <PasswordField
+              id="login-password"
+              label="Contraseña"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+              hint={mode === 'register' ? 'Mínimo 6 caracteres.' : null}
+            />
           )}
 
           {mode === 'login' && (
