@@ -57,6 +57,9 @@ export default function WorkoutModal({
   // false = vista previa del ejercicio (aún se puede cambiar por otro);
   // true = series en curso (ya no se ofrece sustituirlo).
   const [exStarted, setExStarted] = useState(false);
+  // ¿Se está ejecutando la serie actual? Es lo que mueve el cronómetro: entre
+  // el final de un descanso y el "Empezar serie N" siguiente no se entrena.
+  const [serieRunning, setSerieRunning] = useState(false);
   const [replacements, setReplacements] = useState({}); // id de la fila → ejercicio sustituto
   const [altPanel, setAltPanel] = useState(null);       // null | { status, options, error }
   const [completedEx, setCompletedEx] = useState(
@@ -81,8 +84,17 @@ export default function WorkoutModal({
 
   const allDone = exercises.length > 0 && completedEx.size >= exercises.length;
 
-  const storageKey = `workout_start_${session?.id}`;
-  const startTimeRef = useRef(null);
+  // El cronómetro mide tiempo entrenado, no tiempo con el modal abierto: corre
+  // mientras se ejecuta una serie y durante el descanso entre series, y se
+  // detiene en cuanto el descanso termina o se salta, hasta que se empieza la
+  // serie siguiente. Antes arrancaba en "Comenzar entrenamiento" y ya no
+  // paraba, así que contaba también el rato de leer la vista previa.
+  const restRunning = restState != null && !restState.done;
+  const clockRunning = serieRunning || restRunning;
+
+  const storageKey = `workout_elapsed_${session?.id}`;
+  const accumulatedRef = useRef(0);     // ms ya consolidados
+  const runningSinceRef = useRef(null); // inicio del tramo en curso, o null en pausa
   const intervalRef = useRef(null);
   const restRef = useRef(null);
 
@@ -93,26 +105,53 @@ export default function WorkoutModal({
     clearInterval(restRef.current);
   }, []);
 
+  /** Reloj de pared: no acumula deriva si la pestaña queda en segundo plano. */
+  const elapsedMs = useCallback(() => (
+    accumulatedRef.current + (runningSinceRef.current == null ? 0 : Date.now() - runningSinceRef.current)
+  ), []);
+
+  const showElapsed = useCallback((ms) => {
+    const elapsed = Math.floor(ms / 1000);
+    setSeconds(elapsed);
+    setCalories(estimateCalories(elapsed, session?.rpe_target));
+  }, [session?.rpe_target]);
+
   const startTimer = useCallback(() => {
     if (timerStarted) return;
     setTimerStarted(true);
     api.post(`/workouts/sessions/${session.id}/start`, {}).catch(() => { /* la sesión sigue en local */ });
 
-    const stored = localStorage.getItem(storageKey);
-    const parsed = stored ? Number.parseInt(stored, 10) : NaN;
-    startTimeRef.current = Number.isFinite(parsed) ? parsed : Date.now();
-    localStorage.setItem(storageKey, String(startTimeRef.current));
+    // Se recupera lo acumulado por si la pestaña se recargó a media sesión. El
+    // tramo en curso no se guarda: el tiempo con la app cerrada no se entrenó.
+    const stored = Number.parseInt(localStorage.getItem(storageKey) ?? '', 10);
+    accumulatedRef.current = Number.isFinite(stored) && stored > 0 ? stored : 0;
+    runningSinceRef.current = null;
+    showElapsed(accumulatedRef.current);
 
-    // Reloj de pared: no acumula deriva si la pestaña queda en segundo plano.
     intervalRef.current = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
-      setSeconds(elapsed);
-      setCalories(estimateCalories(elapsed, session?.rpe_target));
+      if (runningSinceRef.current == null) return; // en pausa: no hay nada que sumar
+      showElapsed(elapsedMs());
       if (hasWearable) {
         setHr(h => Math.round((h ?? 132) + 8 * Math.sin(Date.now() / 4000) + (Math.random() - 0.5) * 4));
       }
     }, 1000);
-  }, [timerStarted, session?.id, session?.rpe_target, hasWearable, storageKey]);
+  }, [timerStarted, session?.id, hasWearable, storageKey, elapsedMs, showElapsed]);
+
+  // Arranca y pausa el cronómetro siguiendo a `clockRunning`.
+  useEffect(() => {
+    if (!timerStarted) return;
+
+    if (clockRunning) {
+      runningSinceRef.current ??= Date.now();
+      return;
+    }
+    if (runningSinceRef.current != null) {
+      accumulatedRef.current += Date.now() - runningSinceRef.current;
+      runningSinceRef.current = null;
+      localStorage.setItem(storageKey, String(accumulatedRef.current));
+      showElapsed(accumulatedRef.current);
+    }
+  }, [clockRunning, timerStarted, storageKey, showElapsed]);
 
   function startRest(totalSeconds, nextSet = null, setsTotal = null) {
     clearInterval(restRef.current);
@@ -144,6 +183,7 @@ export default function WorkoutModal({
     setAltPanel(null);
     setActiveSetNum(1);
     setExStarted(false);
+    setSerieRunning(false);
     if (!ex) {
       setActiveExId(null);
       onActiveExChange?.(null);
@@ -153,10 +193,16 @@ export default function WorkoutModal({
     onActiveExChange?.({ id: ex.id, name: ex.exercise_name, setNum: 1, totalSets: totalSets(ex) });
   }
 
-  /** Cierra la vista previa y arranca las series del ejercicio propuesto. */
+  /** Cierra la vista previa y arranca la primera serie del ejercicio. */
   function beginExercise() {
     setAltPanel(null);
     setExStarted(true);
+    setSerieRunning(true);
+  }
+
+  /** Reanuda el cronómetro para la serie siguiente, tras el descanso. */
+  function beginSerie() {
+    setSerieRunning(true);
   }
 
   /** Arranca el cronómetro y activa el primer ejercicio pendiente. */
@@ -178,6 +224,8 @@ export default function WorkoutModal({
   /** Cierra una serie del ejercicio activo (o el ejercicio, si es la última). */
   async function completeSerie(ex) {
     const sets = totalSets(ex);
+    // Se cierra la serie: el cronómetro sólo sigue si arranca un descanso.
+    setSerieRunning(false);
 
     if (isTimed(ex) || activeSetNum >= sets) {
       const done = new Set(completedEx).add(ex.id);
@@ -240,6 +288,7 @@ export default function WorkoutModal({
   function stopTimers() {
     clearInterval(intervalRef.current);
     clearInterval(restRef.current);
+    runningSinceRef.current = null;
     localStorage.removeItem(storageKey);
   }
 
@@ -389,7 +438,9 @@ export default function WorkoutModal({
                   block={currentBlock}
                   setNum={activeSetNum}
                   started={exStarted}
+                  serieRunning={serieRunning}
                   onBegin={beginExercise}
+                  onBeginSerie={beginSerie}
                   onCompleteSerie={() => completeSerie(activeEx)}
                 />
               )}
@@ -517,7 +568,7 @@ function ExerciseMedia({ exercise, block }) {
  *   pedir un sustituto.
  * - `started` true: series en curso.
  */
-function ActiveExerciseCard({ exercise, block, setNum, started, onBegin, onCompleteSerie }) {
+function ActiveExerciseCard({ exercise, block, setNum, started, serieRunning, onBegin, onBeginSerie, onCompleteSerie }) {
   const timed = isTimed(exercise);
   const sets = totalSets(exercise);
   const isLastSet = timed || setNum >= sets;
@@ -584,15 +635,21 @@ function ActiveExerciseCard({ exercise, block, setNum, started, onBegin, onCompl
           </div>
         )}
 
-        {started ? (
+        {!started ? (
+          <button type="button" className="btn btn-primary" style={{ padding: '11px' }} onClick={onBegin}>
+            <Play size={15} aria-hidden="true" /> Empezar ejercicio
+          </button>
+        ) : serieRunning ? (
           <button type="button" className="btn btn-primary" style={{ padding: '11px' }} onClick={onCompleteSerie}>
             {isLastSet
               ? <><Check size={15} aria-hidden="true" /> Terminar ejercicio</>
               : <><ChevronRight size={15} aria-hidden="true" /> Serie {setNum} lista</>}
           </button>
         ) : (
-          <button type="button" className="btn btn-primary" style={{ padding: '11px' }} onClick={onBegin}>
-            <Play size={15} aria-hidden="true" /> Empezar ejercicio
+          // Tras el descanso el cronómetro queda parado: hay que decir cuándo
+          // arranca la serie siguiente para que vuelva a contar.
+          <button type="button" className="btn btn-primary" style={{ padding: '11px' }} onClick={onBeginSerie}>
+            <Play size={15} aria-hidden="true" /> Empezar serie {setNum}
           </button>
         )}
       </div>

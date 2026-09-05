@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -194,13 +194,16 @@ describe('WorkoutModal — un ejercicio a la vez', () => {
     await comenzar();
     expect(await screen.findByText('Serie 1 de 3')).toBeInTheDocument();
 
+    // Cada serie se abre a mano: al cerrar la anterior el cronómetro se para.
     await userEvent.click(screen.getByRole('button', { name: /serie 1 lista/i }));
     expect(screen.getByText('Serie 2 de 3')).toBeInTheDocument();
 
+    await userEvent.click(screen.getByRole('button', { name: /empezar serie 2/i }));
     await userEvent.click(screen.getByRole('button', { name: /serie 2 lista/i }));
     expect(screen.getByText('Serie 3 de 3')).toBeInTheDocument();
 
     // La última serie cierra el ejercicio.
+    await userEvent.click(screen.getByRole('button', { name: /empezar serie 3/i }));
     await userEvent.click(screen.getByRole('button', { name: /terminar ejercicio/i }));
     expect(onExerciseDone).toHaveBeenCalledWith('st');
     expect(onActiveExChange).toHaveBeenLastCalledWith(null);
@@ -520,11 +523,15 @@ describe('WorkoutModal — bloques y finalización', () => {
 });
 
 describe('WorkoutModal — cronómetro y calorías', () => {
+  // Si el test falla antes de restaurarlos, los temporizadores falsos se
+  // filtran al resto del archivo y tumban pruebas que no tienen nada que ver.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('cuenta con reloj de pared y estima calorías realistas', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const now = Date.parse('2026-08-18T10:00:00Z');
-    vi.setSystemTime(now);
+    vi.setSystemTime(Date.parse('2026-08-18T10:00:00Z'));
 
     render(
       <WorkoutModal
@@ -535,20 +542,31 @@ describe('WorkoutModal — cronómetro y calorías', () => {
       />,
     );
 
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     await user.click(screen.getByRole('button', { name: /comenzar entrenamiento/i }));
+    // El reloj no arranca hasta que hay un ejercicio en ejecución.
+    await user.click(await screen.findByRole('button', { name: /empezar ejercicio/i }));
 
-    await act(async () => { vi.setSystemTime(now + 65_000); vi.advanceTimersByTime(1000); });
+    await act(async () => { vi.advanceTimersByTime(65_400); });
 
-    expect(screen.getByText('01:05')).toBeInTheDocument();
+    // El reloj ronda el minuto: el valor exacto depende de los milisegundos
+    // que consuman los clics, y lo que se comprueba aquí son las calorías.
+    expect(screen.getByLabelText('Tiempo transcurrido').textContent).toMatch(/^01:0\d$/);
     // Regresión: la fórmula anterior daba ~0,2 kcal al minuto de sesión.
     expect(screen.getByText('10 kcal')).toBeInTheDocument();
-    vi.useRealTimers();
   });
 
-  it('guarda el inicio en localStorage para sobrevivir a un minimizado', async () => {
-    const { session } = renderModal();
+  it('consolida el tiempo en localStorage al pausar, para sobrevivir a una recarga', async () => {
+    // Se guarda al pausar, no al arrancar: lo que interesa conservar es el
+    // tiempo ya entrenado, no el instante en que se abrió el modal.
+    const { session } = renderModal({
+      session_exercises: [makeExercise({ id: 'st', sets: 2, rest_seconds: 0 })],
+    });
     await comenzar();
-    expect(localStorage.getItem(`workout_start_${session.id}`)).toBeTruthy();
+    expect(localStorage.getItem(`workout_elapsed_${session.id}`)).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: /serie 1 lista/i }));
+    expect(localStorage.getItem(`workout_elapsed_${session.id}`)).toBeTruthy();
   });
 });
 
@@ -569,7 +587,7 @@ describe('WorkoutModal — controles', () => {
     await userEvent.click(screen.getByRole('button', { name: /cerrar entrenamiento/i }));
 
     expect(onClose).toHaveBeenCalled();
-    expect(localStorage.getItem(`workout_start_${session.id}`)).toBeNull();
+    expect(localStorage.getItem(`workout_elapsed_${session.id}`)).toBeNull();
   });
 
   it('no renderiza nada cuando está minimizado', () => {
@@ -583,5 +601,123 @@ describe('WorkoutModal — controles', () => {
     render(<WorkoutModal session={makeSession()} visible hasWearable={false} onClose={vi.fn()} onMinimize={vi.fn()} />);
     expect(screen.getByText('FC bpm')).toBeInTheDocument();
     expect(screen.getAllByText('—').length).toBeGreaterThan(0);
+  });
+});
+
+describe('WorkoutModal — el cronómetro sólo corre entrenando', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /**
+   * `shouldAdvanceTime` deja correr el tiempo real además del falso. Hace
+   * falta: las transiciones de framer-motion van por `requestAnimationFrame`,
+   * que Vitest no falsea, y sin ellas las tarjetas nunca terminan de montarse.
+   * El precio es que cada clic mete unos milisegundos en el reloj, así que las
+   * comprobaciones de abajo toleran un segundo de más.
+   */
+  function conRelojFalso() {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  }
+
+  const reloj = () => screen.getByLabelText('Tiempo transcurrido').textContent;
+  const segundos = (txt) => {
+    const [min, seg] = txt.split(':').map(Number);
+    return min * 60 + seg;
+  };
+  const correr = (ms) => act(async () => { vi.advanceTimersByTime(ms); });
+
+  /**
+   * El reloj marca `esperado`, con un segundo de tolerancia a cada lado: el
+   * último tic del intervalo cae unos milisegundos antes de completar el
+   * avance, así que el truncado puede quedarse corto por uno.
+   * Lo que se comprueba aquí es que el reloj avanzó; que se detenga se
+   * verifica aparte, con igualdad exacta, que no sufre deriva.
+   */
+  function marca(esperado) {
+    const txt = reloj();
+    expect(segundos(txt), `el reloj marca ${txt}`).toBeGreaterThanOrEqual(esperado - 1);
+    expect(segundos(txt), `el reloj marca ${txt}`).toBeLessThanOrEqual(esperado + 1);
+  }
+
+  it('no corre mientras el ejercicio está en vista previa', async () => {
+    const user = conRelojFalso();
+    renderModal({ session_exercises: [makeExercise({ id: 'st', sets: 2, rest_seconds: 30 })] });
+
+    await user.click(screen.getByRole('button', { name: /comenzar entrenamiento/i }));
+    await screen.findByRole('button', { name: /empezar ejercicio/i });
+
+    await correr(15_000);
+    // Exacto: en pausa no hay deriva que valga, tiene que seguir en cero.
+    expect(reloj()).toBe('00:00');
+  });
+
+  it('cuenta la serie y el descanso, y para al saltarlo', async () => {
+    const user = conRelojFalso();
+    renderModal({
+      session_exercises: [makeExercise({ id: 'st', exercise_name: 'Sentadilla con Barra', sets: 3, rest_seconds: 60 })],
+    });
+
+    await user.click(screen.getByRole('button', { name: /comenzar entrenamiento/i }));
+    await user.click(await screen.findByRole('button', { name: /empezar ejercicio/i }));
+
+    // Serie en ejecución: cuenta.
+    await correr(5000);
+    marca(5);
+
+    // Descanso: el ejercicio no ha terminado, así que sigue contando.
+    await user.click(await screen.findByRole('button', { name: /serie 1 lista/i }));
+    await correr(3000);
+    marca(8);
+
+    // Saltar el descanso lo detiene: el valor exacto ya no se mueve.
+    await user.click(await screen.findByRole('button', { name: /saltar descanso/i }));
+    const alPausar = reloj();
+    await correr(30_000);
+    expect(reloj()).toBe(alPausar);
+
+    // Y la serie siguiente lo reanuda desde donde se quedó.
+    await user.click(await screen.findByRole('button', { name: /empezar serie 2/i }));
+    await correr(4000);
+    marca(segundos(alPausar) + 4);
+  });
+
+  it('para solo cuando el descanso llega a cero, sin tocar nada', async () => {
+    const user = conRelojFalso();
+    renderModal({ session_exercises: [makeExercise({ id: 'st', sets: 2, rest_seconds: 5 })] });
+
+    await user.click(screen.getByRole('button', { name: /comenzar entrenamiento/i }));
+    await user.click(await screen.findByRole('button', { name: /empezar ejercicio/i }));
+    await correr(5000);
+
+    await user.click(await screen.findByRole('button', { name: /serie 1 lista/i }));
+    await correr(5000); // la cuenta atrás baja un segundo por tick
+    const alAgotarse = reloj();
+    marca(10);
+
+    // Nadie ha tocado nada y el aviso sigue en pantalla, pero ya no suma.
+    await correr(20_000);
+    expect(reloj()).toBe(alAgotarse);
+  });
+
+  it('al terminar un ejercicio deja de contar hasta empezar el siguiente', async () => {
+    const user = conRelojFalso();
+    renderModal({ session_exercises: bloqueDeFuerza() });
+
+    await user.click(screen.getByRole('button', { name: /comenzar entrenamiento/i }));
+    await user.click(await screen.findByRole('button', { name: /empezar ejercicio/i }));
+    await correr(7000);
+
+    // De una serie: cierra el ejercicio y propone el siguiente en vista previa.
+    await user.click(await screen.findByRole('button', { name: /terminar ejercicio/i }));
+    await screen.findByRole('button', { name: /empezar ejercicio/i });
+    const enPrevia = reloj();
+    await correr(25_000);
+    expect(reloj()).toBe(enPrevia);
+
+    await user.click(screen.getByRole('button', { name: /empezar ejercicio/i }));
+    await correr(3000);
+    marca(segundos(enPrevia) + 3);
   });
 });
