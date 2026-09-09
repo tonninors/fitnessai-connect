@@ -11,6 +11,7 @@ import Chat from './screens/Chat.jsx';
 import WorkoutModal from './components/WorkoutModal.jsx';
 import ResetPassword from './screens/ResetPassword.jsx';
 import { formatClock } from './lib/dates.js';
+import { sessionFocusTitle } from './lib/workout.js';
 
 // Recharts pesa ~400 kB y sólo lo usa Progreso; el panel de entrenador lo ve
 // una minoría de usuarios. Ambos se cargan bajo demanda.
@@ -125,7 +126,7 @@ export default function App() {
 
   if (loading || profileLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-bg" role="status" aria-label="Cargando">
+      <div className="flex items-center justify-center min-h-dvh bg-bg" role="status" aria-label="Cargando">
         <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -136,7 +137,7 @@ export default function App() {
 
   if (profileError) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-bg gap-4 px-6 text-center" role="alert">
+      <div className="flex flex-col items-center justify-center min-h-dvh bg-bg gap-4 px-6 text-center" role="alert">
         <p className="text-txt font-semibold">No se pudo conectar al servidor</p>
         <p className="text-txt3 text-sm max-w-[320px] leading-relaxed">
           Asegúrate de que el backend esté corriendo en el puerto 3000.
@@ -274,7 +275,7 @@ export default function App() {
                   type="button"
                   className="absolute bottom-[80px] left-0 right-0 z-[70] px-4 pb-2 bg-transparent border-none cursor-pointer"
                   onClick={() => setModalVisible(true)}
-                  aria-label={`Volver al entrenamiento ${activeSession.name}`}
+                  aria-label={`Volver al entrenamiento ${sessionFocusTitle(activeSession)}`}
                 >
                   <span
                     className="flex items-center gap-3 bg-surface border border-border rounded-2xl px-4 py-3"
@@ -285,7 +286,7 @@ export default function App() {
                       En vivo
                     </span>
                     <span className="flex-1 min-w-0 text-left">
-                      <span className="block text-sm font-semibold truncate">{activeSession.name}</span>
+                      <span className="block text-sm font-semibold truncate">{sessionFocusTitle(activeSession)}</span>
                     </span>
                     <ChevronUp size={16} className="text-accent shrink-0" aria-hidden="true" />
                   </span>

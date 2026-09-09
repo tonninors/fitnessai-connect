@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * Genera el seed SQL del catálogo v2 a partir de
  * `database/catalog/exercises_v2_science_based.csv` (150 ejercicios × 34 columnas).

@@ -21,7 +21,6 @@ function renderHome(props = {}) {
       runningSession={null}
       onResumeWorkout={vi.fn()}
       liveCompleted={new Set()}
-      liveActiveEx={null}
       {...props}
     />,
   );
@@ -58,17 +57,49 @@ describe('Home — carga y errores', () => {
 });
 
 describe('Home — entrenamiento del día', () => {
-  it('muestra la sesión de hoy con sus métricas y permite iniciarla', async () => {
-    const session = makeSession({ name: 'Push A — Pecho y Hombros' });
+  it('titula la sesión con la zona del cuerpo en español, no con el nombre de la IA', async () => {
+    const session = makeSession({ name: 'Lower A — Enfoque en Sentadilla', focus_areas: ['cuádriceps', 'glúteos'] });
+    api.get.mockResolvedValue(makeHomeData({ today_session: session }));
+    renderHome();
+
+    expect(await screen.findByRole('heading', { name: 'Piernas' })).toBeInTheDocument();
+    expect(screen.queryByText('Lower A — Enfoque en Sentadilla')).not.toBeInTheDocument();
+  });
+
+  it('resume el entrenamiento en una línea y lo inicia', async () => {
+    const session = makeSession();
     api.get.mockResolvedValue(makeHomeData({ today_session: session }));
     const onStartWorkout = vi.fn();
     renderHome({ onStartWorkout });
 
-    expect(await screen.findByText('Push A — Pecho y Hombros')).toBeInTheDocument();
-    expect(screen.getByText('Ejercicios')).toBeInTheDocument();
+    expect(await screen.findByText('60 min · 4 ejercicios')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: /iniciar entrenamiento/i }));
     expect(onStartWorkout).toHaveBeenCalledWith(session);
+  });
+
+  it('parte la barra de progreso en los bloques que toca ese día', async () => {
+    // La sesión de la fábrica trae calentamiento, fuerza y estiramiento; sin
+    // cardio no debe dibujarse una cuarta parte vacía.
+    api.get.mockResolvedValue(makeHomeData({ today_session: makeSession() }));
+    renderHome();
+
+    expect(await screen.findByTestId('block-bar-warmup')).toBeInTheDocument();
+    expect(screen.getByTestId('block-bar-strength')).toBeInTheDocument();
+    expect(screen.getByTestId('block-bar-cooldown')).toBeInTheDocument();
+    expect(screen.queryByTestId('block-bar-cardio')).not.toBeInTheDocument();
+  });
+
+  it('ya no muestra el texto de relleno de la IA', async () => {
+    api.get.mockResolvedValue(makeHomeData({
+      ai_insight: '¡Hoy en Upper A — Press Horizontal apunta a subir la carga!',
+      hrv: 62,
+    }));
+    renderHome();
+
+    await screen.findByRole('heading', { name: 'Pecho' });
+    expect(screen.queryByText(/press horizontal/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/hrv/i)).not.toBeInTheDocument();
   });
 
   it('deshabilita el botón si la sesión ya está completada', async () => {
@@ -125,32 +156,45 @@ describe('Home — tira semanal', () => {
 });
 
 describe('Home — entrenamiento en curso', () => {
-  it('muestra el progreso y el siguiente ejercicio pendiente', async () => {
+  function sesionEnCurso() {
     const warmup = makeExercise({ id: 'w', exercise_name: 'Movilidad de cadera', exercise_type: 'warmup', duration_seconds: 45, order_num: 1 });
     const strength = makeExercise({ id: 's', exercise_name: 'Sentadilla con Barra', exercise_type: 'strength', order_num: 2 });
-    const running = makeSession({ session_exercises: [warmup, strength] });
+    return makeSession({ session_exercises: [warmup, strength] });
+  }
 
-    api.get.mockResolvedValue(makeHomeData());
-    renderHome({ runningSession: running, liveCompleted: new Set(['w']) });
-
-    expect(await screen.findByText('Sentadilla con Barra')).toBeInTheDocument();
-    expect(screen.getByText('1/2')).toBeInTheDocument();
-  });
-
-  it('vuelve al modal al pulsar la tarjeta en vivo', async () => {
+  it('deja un único botón en Inicio, que continúa el entrenamiento', async () => {
+    // Antes convivían la tarjeta "en vivo" y la de hoy, cada una con su
+    // botón: dos caminos al mismo entrenamiento.
+    const session = sesionEnCurso();
     const onResumeWorkout = vi.fn();
-    api.get.mockResolvedValue(makeHomeData());
-    renderHome({ runningSession: makeSession(), onResumeWorkout });
+    const onStartWorkout = vi.fn();
+    api.get.mockResolvedValue(makeHomeData({ today_session: session }));
+    renderHome({ runningSession: session, liveCompleted: new Set(['w']), onResumeWorkout, onStartWorkout });
 
-    await userEvent.click(await screen.findByRole('button', { name: /volver al entrenamiento en curso/i }));
+    const boton = await screen.findByRole('button', { name: /continuar entrenamiento/i });
+    expect(screen.queryByRole('button', { name: /iniciar entrenamiento/i })).not.toBeInTheDocument();
+
+    await userEvent.click(boton);
     expect(onResumeWorkout).toHaveBeenCalled();
+    expect(onStartWorkout).not.toHaveBeenCalled();
   });
 
-  it('avisa cuando ya se completaron todos los ejercicios', async () => {
-    const running = makeSession({ session_exercises: [makeExercise({ id: 'a' })] });
-    api.get.mockResolvedValue(makeHomeData());
-    renderHome({ runningSession: running, liveCompleted: new Set(['a']) });
+  it('refleja en la barra lo que se va marcando en el modal', async () => {
+    const session = sesionEnCurso();
+    api.get.mockResolvedValue(makeHomeData({ today_session: session }));
+    renderHome({ runningSession: session, liveCompleted: new Set(['w']) });
 
-    expect(await screen.findByText('Todos los ejercicios completados')).toBeInTheDocument();
+    expect(await screen.findByRole('img', { name: /1 de 2 ejercicios/i })).toBeInTheDocument();
+  });
+
+  it('no cuenta el progreso si lo que corre es otra sesión', async () => {
+    // `liveCompleted` pertenece a la sesión en curso: aplicarlo a la de hoy
+    // marcaría ejercicios que nadie hizo.
+    const otra = makeSession({ id: 'otra-sesion' });
+    api.get.mockResolvedValue(makeHomeData({ today_session: sesionEnCurso() }));
+    renderHome({ runningSession: otra, liveCompleted: new Set(['w']) });
+
+    expect(await screen.findByRole('img', { name: /0 de 2 ejercicios/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /iniciar entrenamiento/i })).toBeInTheDocument();
   });
 });

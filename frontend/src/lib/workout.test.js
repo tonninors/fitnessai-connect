@@ -12,6 +12,9 @@ import {
   describeExercise,
   estimateCalories,
   kcalPerMinute,
+  isExerciseDone,
+  blockProgress,
+  sessionFocusTitle,
   BLOCK_ORDER,
 } from './workout.js';
 
@@ -196,5 +199,91 @@ describe('estimateCalories', () => {
     expect(kcalPerMinute(undefined)).toBe(kcalPerMinute(6));
     expect(kcalPerMinute(50)).toBe(kcalPerMinute(6));
     expect(kcalPerMinute('alto')).toBe(kcalPerMinute(6));
+  });
+});
+
+describe('isExerciseDone', () => {
+  it('se apoya en `completed` cuando no hay sesión en curso', () => {
+    expect(isExerciseDone(ex({ completed: true }))).toBe(true);
+    expect(isExerciseDone(ex({ completed: false }))).toBe(false);
+  });
+
+  it('da por hecho lo que marcó el modal aunque la fila siga sin actualizar', () => {
+    expect(isExerciseDone(ex({ id: 'a', completed: false }), new Set(['a']))).toBe(true);
+  });
+
+  it('no descarta lo que ya venía completado de la base', () => {
+    // `doneIds` arranca desde `completed`, pero un Set vacío no debe borrar
+    // el progreso guardado.
+    expect(isExerciseDone(ex({ id: 'a', completed: true }), new Set())).toBe(true);
+  });
+});
+
+describe('blockProgress', () => {
+  const sesion = [
+    ex({ id: 'w1', exercise_type: 'warmup', order_num: 1 }),
+    ex({ id: 'w2', exercise_type: 'warmup', order_num: 2 }),
+    ex({ id: 's1', exercise_type: 'strength', order_num: 3 }),
+    ex({ id: 's2', exercise_type: 'strength', order_num: 4 }),
+    ex({ id: 'c1', exercise_type: 'cooldown', order_num: 5 }),
+  ];
+
+  it('devuelve una parte por bloque presente, en orden', () => {
+    expect(blockProgress(sesion).map(b => b.type)).toEqual(['warmup', 'strength', 'cooldown']);
+  });
+
+  it('omite los bloques sin ejercicios', () => {
+    // Con `cardio_minutes = 0` el generador no crea bloque de cardio: no debe
+    // aparecer una parte vacía en la barra.
+    expect(blockProgress(sesion).some(b => b.type === 'cardio')).toBe(false);
+  });
+
+  it('calcula el avance de cada bloque por separado', () => {
+    const progreso = blockProgress(sesion, new Set(['w1', 'w2', 's1']));
+
+    expect(progreso.find(b => b.type === 'warmup')).toMatchObject({ done: 2, total: 2, percent: 100 });
+    expect(progreso.find(b => b.type === 'strength')).toMatchObject({ done: 1, total: 2, percent: 50 });
+    expect(progreso.find(b => b.type === 'cooldown')).toMatchObject({ done: 0, total: 1, percent: 0 });
+  });
+
+  it('sin ejercicios no devuelve partes', () => {
+    expect(blockProgress([])).toEqual([]);
+    expect(blockProgress()).toEqual([]);
+  });
+});
+
+describe('sessionFocusTitle', () => {
+  it('resume un día de pierna en una palabra', () => {
+    expect(sessionFocusTitle({ focus_areas: ['cuádriceps', 'glúteos', 'isquiotibiales'] })).toBe('Piernas');
+  });
+
+  it('ignora los acentos de `focus_areas`', () => {
+    expect(sessionFocusTitle({ focus_areas: ['tríceps'] })).toBe('Brazos');
+  });
+
+  it('gana el primer músculo, que es el principal del día', () => {
+    expect(sessionFocusTitle({ focus_areas: ['pectorales', 'deltoides', 'tríceps'] })).toBe('Pecho');
+    expect(sessionFocusTitle({ focus_areas: ['dorsales', 'bíceps'] })).toBe('Espalda');
+  });
+
+  it('avisa cuando el día mezcla tren superior e inferior', () => {
+    expect(sessionFocusTitle({ focus_areas: ['pecho', 'cuádriceps'] })).toBe('Cuerpo completo');
+  });
+
+  it('el core no convierte un día en cuerpo completo', () => {
+    expect(sessionFocusTitle({ focus_areas: ['abdomen'] })).toBe('Core');
+    expect(sessionFocusTitle({ focus_areas: ['glúteos', 'core'] })).toBe('Piernas');
+  });
+
+  it('cae al nombre original antes que inventar un título', () => {
+    expect(sessionFocusTitle({ focus_areas: [], name: 'Lower A — Enfoque en Sentadilla' }))
+      .toBe('Lower A — Enfoque en Sentadilla');
+    expect(sessionFocusTitle({ focus_areas: ['movilidad'], name: 'Full Body B' })).toBe('Full Body B');
+  });
+
+  it('nunca devuelve vacío', () => {
+    expect(sessionFocusTitle({})).toBe('Entrenamiento');
+    expect(sessionFocusTitle(null)).toBe('Entrenamiento');
+    expect(sessionFocusTitle({ focus_areas: null, name: '   ' })).toBe('Entrenamiento');
   });
 });

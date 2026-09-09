@@ -81,6 +81,8 @@ describe('GET /api/workouts/plan', () => {
     const columns = ctx.supabase.queriesFor('workout_plans')[0].columns;
     expect(columns).toContain('exercise_type');
     expect(columns).toContain('duration_seconds');
+    // El modal reanuda el cronómetro desde aquí.
+    expect(columns).toContain('elapsed_seconds');
   });
 
   it('devuelve null cuando el usuario no tiene plan', async () => {
@@ -142,6 +144,44 @@ describe('POST /api/workouts/sessions/:id/start', () => {
     ctx = createTestApp({ resolver: ownedResolver() });
     const res = await request(ctx.app).post('/api/workouts/sessions/not-a-uuid/start').set(authHeader);
     expect(res.status).toBe(400);
+  });
+});
+
+describe('PATCH /api/workouts/sessions/:id/progress', () => {
+  const url = `/api/workouts/sessions/${TEST_SESSION_ID}/progress`;
+
+  it('guarda el tiempo entrenado sobre la sesión del usuario', async () => {
+    ctx = createTestApp({ resolver: ownedResolver() });
+    const res = await request(ctx.app).patch(url).set(authHeader).send({ elapsed_seconds: 754 });
+    expect(res.status).toBe(204);
+
+    const update = ctx.supabase.queriesFor('workout_sessions').find(q => q.op === 'update');
+    expect(update.payload).toEqual({ elapsed_seconds: 754 });
+    expect(hasFilter(update, 'eq', 'user_id', TEST_USER.id)).toBe(true);
+  });
+
+  it('nunca retrocede: sólo escribe si el valor guardado es menor', async () => {
+    // Un envío rezagado (p. ej. el de "segundo plano" llegando tarde) no debe
+    // pisar una sincronización más reciente con más tiempo.
+    ctx = createTestApp({ resolver: ownedResolver() });
+    await request(ctx.app).patch(url).set(authHeader).send({ elapsed_seconds: 120 });
+
+    const update = ctx.supabase.queriesFor('workout_sessions').find(q => q.op === 'update');
+    expect(hasFilter(update, 'lt', 'elapsed_seconds', 120)).toBe(true);
+  });
+
+  it('exige elapsed_seconds entero y no negativo', async () => {
+    ctx = createTestApp({ resolver: ownedResolver() });
+    expect((await request(ctx.app).patch(url).set(authHeader).send({})).status).toBe(400);
+    expect((await request(ctx.app).patch(url).set(authHeader).send({ elapsed_seconds: -5 })).status).toBe(400);
+    expect((await request(ctx.app).patch(url).set(authHeader).send({ elapsed_seconds: 12.5 })).status).toBe(400);
+    expect(ctx.supabase.queriesFor('workout_sessions').some(q => q.op === 'update')).toBe(false);
+  });
+
+  it('devuelve 403 si la sesión es de otro usuario', async () => {
+    ctx = createTestApp({ resolver: () => ({ data: null, error: null }) });
+    const res = await request(ctx.app).patch(url).set(authHeader).send({ elapsed_seconds: 30 });
+    expect(res.status).toBe(403);
   });
 });
 

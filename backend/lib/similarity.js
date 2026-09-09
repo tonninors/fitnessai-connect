@@ -85,6 +85,32 @@ const PATTERN_FAMILY = {
   stretch: 'stretch',
 };
 
+/**
+ * Campos de la ficha del catálogo que lee este motor.
+ *
+ * `routes/workouts.js` deriva de aquí las columnas que pide a Supabase: si se
+ * añade una dimensión nueva y no se selecciona su columna, la dimensión queda
+ * muda en producción y los dobles de test no lo detectan (devuelven el fixture
+ * entero, ignorando el `select`).
+ */
+export const SIMILARITY_FIELDS = [
+  'exercise_family',
+  'movement_pattern',
+  'movement_angle',
+  'muscle_map',
+  'joint_actions',
+  'rom',
+  'muscle_length_bias',
+  'resistance_profile',
+  'body_support',
+  'stability_demand',
+  'equipment',
+  'is_compound',
+  'kinetic_chain',
+  'laterality',
+  'fatigue',
+];
+
 /** Patrones conocidos, para que los tests detecten cualquiera sin mapear. */
 export const KNOWN_PATTERNS = Object.keys(PATTERN_FAMILY);
 

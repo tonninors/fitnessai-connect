@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   weightedJaccard,
   setJaccard,
@@ -19,6 +20,7 @@ import {
   compareExercises,
   toPercent,
   KNOWN_PATTERNS,
+  SIMILARITY_FIELDS,
   PENALTY_ANTAGONIST_PATTERN,
   PENALTY_DIFFERENT_FAMILY_PATTERN,
   PENALTY_LOW_PRIMARY_OVERLAP,
@@ -354,5 +356,29 @@ describe('toPercent', () => {
   it('convierte a entero 0-100 y respeta el null', () => {
     expect(toPercent(0.876)).toBe(88);
     expect(toPercent(null)).toBeNull();
+  });
+});
+
+describe('contrato con el endpoint', () => {
+  it('cada campo que lee el motor se pide en el SELECT del catálogo', async () => {
+    // Regresión: `exercise_family` se añadió al motor pero no a CATALOG_COLUMNS,
+    // así que en producción la dimensión de mayor peso venía siempre vacía. Los
+    // dobles de Supabase no lo detectan: devuelven el fixture entero ignorando
+    // el `select`.
+    const source = readFileSync(new URL('../../routes/workouts.js', import.meta.url), 'utf8');
+    const declaration = source.slice(source.indexOf('const CATALOG_COLUMNS'));
+
+    expect(declaration).toContain('SIMILARITY_FIELDS');
+    for (const field of SIMILARITY_FIELDS) {
+      expect(compareExercises({ [field]: null }, { [field]: null })).toBeDefined();
+    }
+  });
+
+  it('SIMILARITY_FIELDS no lista campos que el motor ya no usa', () => {
+    const source = readFileSync(new URL('../../lib/similarity.js', import.meta.url), 'utf8');
+    for (const field of SIMILARITY_FIELDS) {
+      // Cada campo debe leerse en alguna función del motor (`a?.campo`).
+      expect(source).toContain(`?.${field}`);
+    }
   });
 });

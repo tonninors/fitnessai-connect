@@ -124,14 +124,16 @@ describe('App — entrenamiento en curso (regresión)', () => {
   });
 
   it('minimizar deja la barra "En vivo" y permite volver sin perder la sesión', async () => {
-    const session = await startWorkout();
+    await startWorkout();
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: /minimizar entrenamiento/i }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 
-    const miniBar = await screen.findByRole('button', { name: new RegExp(`volver al entrenamiento ${session.name}`, 'i') });
+    // La barra nombra la sesión por su zona del cuerpo ("Pecho"), no por el
+    // nombre en inglés que le pone la IA.
+    const miniBar = await screen.findByRole('button', { name: /volver al entrenamiento pecho/i });
     await userEvent.click(miniBar);
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
@@ -157,7 +159,7 @@ describe('App — entrenamiento en curso (regresión)', () => {
     await userEvent.click(await screen.findByRole('button', { name: /terminar ejercicio/i }));
     await userEvent.click(screen.getByRole('button', { name: /minimizar entrenamiento/i }));
 
-    // La tarjeta "En vivo" de Inicio muestra 1 de 4 ejercicios completados.
-    expect(await screen.findByText('1/4')).toBeInTheDocument();
+    // La barra segmentada de Inicio marca 1 de 4 ejercicios completados.
+    expect(await screen.findByRole('img', { name: /1 de 4 ejercicios/i })).toBeInTheDocument();
   });
 });

@@ -1,18 +1,10 @@
 import { motion } from 'framer-motion';
-import { Play, Check, Sparkles, ChevronRight, Calendar, ChevronUp } from 'lucide-react';
+import { Play, Check, Sparkles, ChevronRight, Calendar } from 'lucide-react';
 import { api } from '../api/client.js';
 import { useApiData } from '../hooks/useApiData.js';
 import ErrorState from '../components/ErrorState.jsx';
 import { todayISO, weekDays, formatDate, WEEKDAY_INITIALS } from '../lib/dates.js';
-import {
-  BLOCK_META,
-  exerciseType,
-  isTimed,
-  totalSets,
-  nextPendingExercise,
-  completionPercent,
-  formatDuration,
-} from '../lib/workout.js';
+import { blockProgress, sessionFocusTitle } from '../lib/workout.js';
 
 export default function Home({
   onStartWorkout,
@@ -20,7 +12,6 @@ export default function Home({
   runningSession,
   onResumeWorkout,
   liveCompleted,
-  liveActiveEx,
 }) {
   const { data, loading, error, reload } = useApiData(() => api.get('/home'));
 
@@ -36,7 +27,7 @@ export default function Home({
   }
   if (!data) return null;
 
-  const { greeting, profile, today_session, next_session, ai_insight, activity_rings, hrv, week_sessions } = data;
+  const { greeting, profile, today_session, next_session, activity_rings, week_sessions } = data;
   const today = todayISO();
   const firstName = profile?.full_name?.split(' ')[0] ?? 'Usuario';
   const rings = [
@@ -61,49 +52,19 @@ export default function Home({
         </div>
       )}
 
-      {/* Entrenamiento en curso */}
-      {runningSession && (
-        <div className="section pb-0">
-          <RunningSessionCard
-            session={runningSession}
-            completed={liveCompleted ?? new Set()}
-            activeEx={liveActiveEx}
-            onResume={onResumeWorkout}
-          />
-        </div>
-      )}
-
-      {/* Entrenamiento de hoy */}
+      {/* Entrenamiento de hoy: una sola tarjeta con un solo botón. Antes, con
+          una sesión en curso, Inicio mostraba además una tarjeta "en vivo" con
+          su propio botón: dos formas distintas de entrar al mismo
+          entrenamiento. */}
       <div className="section">
         {today_session ? (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-            className="card border-l-[3px] border-l-accent"
-          >
-            <p className="flex items-center gap-1.5 text-[10px] text-accent font-semibold uppercase tracking-wider mb-3">
-              <Sparkles size={12} aria-hidden="true" /> Entrenamiento de hoy
-            </p>
-            <h2 className="text-xl font-bold mb-1">{today_session.name}</h2>
-            <p className="text-xs text-txt3 mb-5">
-              {profile?.trainer_profiles ? `${profile.trainer_profiles.full_name} · ` : ''}
-              {today_session.estimated_duration} min
-            </p>
-            <div className="flex gap-0 mb-5 bg-surface2 rounded-xl overflow-hidden border border-border">
-              <Stat val={today_session.session_exercises?.length ?? 0} label="Ejercicios" />
-              <Stat val={today_session.estimated_calories ?? '—'} label="Kcal" />
-              <Stat val={today_session.rpe_target ?? '—'} label="RPE" />
-            </div>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => onStartWorkout(today_session)}
-              disabled={today_session.status === 'completed'}
-            >
-              {today_session.status === 'completed'
-                ? <><Check size={16} aria-hidden="true" /> Completado</>
-                : <><Play size={16} fill="white" aria-hidden="true" /> Iniciar entrenamiento</>}
-            </button>
-          </motion.div>
+          <TodayWorkoutCard
+            session={today_session}
+            isRunning={runningSession?.id === today_session.id}
+            liveCompleted={liveCompleted}
+            onStart={() => onStartWorkout(today_session)}
+            onResume={onResumeWorkout}
+          />
         ) : next_session ? (
           <motion.div
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
@@ -148,18 +109,6 @@ export default function Home({
         </div>
       </div>
 
-      {/* Insight de IA */}
-      {(ai_insight || hrv) && (
-        <div className="section pt-0">
-          <div className="card border-l-[3px] border-l-accent flex gap-3 items-start">
-            <Sparkles size={16} className="text-accent shrink-0 mt-0.5" aria-hidden="true" />
-            <p className="text-sm text-txt2 leading-relaxed">
-              {ai_insight ?? `Tu HRV hoy es ${hrv}. Mantén la intensidad moderada.`}
-            </p>
-          </div>
-        </div>
-      )}
-
       {/* Entrenador */}
       {profile?.trainer_profiles && (
         <div className="section pt-0">
@@ -200,84 +149,107 @@ function HomeSkeleton() {
   );
 }
 
-function RunningSessionCard({ session, completed, activeEx, onResume }) {
-  const all = session.session_exercises ?? [];
-  const total = all.length;
-  const doneCount = completed.size;
-  const current = nextPendingExercise(all, completed);
-  const blockLabel = current ? BLOCK_META[exerciseType(current)].label : null;
+function TodayWorkoutCard({ session, isRunning, liveCompleted, onStart, onResume }) {
+  const exercises = session.session_exercises ?? [];
+  // El progreso en vivo sólo cuenta si el entrenamiento que corre es éste.
+  const segments = blockProgress(exercises, isRunning ? liveCompleted : null);
+  const isCompleted = session.status === 'completed';
+
+  const meta = [
+    session.estimated_duration ? `${session.estimated_duration} min` : null,
+    exercises.length ? `${exercises.length} ejercicios` : null,
+  ].filter(Boolean).join(' · ');
 
   return (
-    <motion.button
-      type="button"
-      initial={{ opacity: 0, y: -8 }}
-      animate={{ opacity: 1, y: 0 }}
-      onClick={onResume}
-      className="w-full text-left card border border-accent/30 cursor-pointer hover:border-accent/50 transition-colors !py-3.5"
-      aria-label="Volver al entrenamiento en curso"
+    <motion.div
+      initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+      className="card border-l-[3px] border-l-accent"
     >
-      <div className="flex items-center justify-between mb-2.5">
-        <span className="flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" />
-          <span className="text-accent text-[10px] font-bold uppercase tracking-wider">En vivo</span>
-          <span className="text-txt3 text-[10px] mx-1">·</span>
-          <span className="text-txt3 text-[10px] truncate max-w-[140px]">{session.name}</span>
-        </span>
-        <span className="text-txt3 text-[10px] shrink-0">{doneCount}/{total}</span>
+      <p className="flex items-center gap-1.5 text-[10px] text-accent font-semibold uppercase tracking-wider mb-3">
+        {isRunning ? (
+          <>
+            <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" aria-hidden="true" />
+            En vivo
+          </>
+        ) : (
+          <>
+            <Sparkles size={12} aria-hidden="true" />
+            Entrenamiento de hoy
+          </>
+        )}
+      </p>
+
+      <h2 className="text-2xl font-bold tracking-tight mb-1">{sessionFocusTitle(session)}</h2>
+      {meta && <p className="text-xs text-txt3 mb-5">{meta}</p>}
+
+      <BlockProgress segments={segments} />
+
+      <button
+        type="button"
+        className="btn btn-primary"
+        onClick={isRunning ? onResume : onStart}
+        disabled={isCompleted}
+      >
+        {isCompleted ? (
+          <><Check size={16} aria-hidden="true" /> Completado</>
+        ) : (
+          <>
+            <Play size={16} fill="white" aria-hidden="true" />
+            {isRunning ? 'Continuar entrenamiento' : 'Iniciar entrenamiento'}
+          </>
+        )}
+      </button>
+    </motion.div>
+  );
+}
+
+/**
+ * Barra de progreso partida en los bloques que toca ese día: una parte por
+ * bloque, del ancho proporcional a sus ejercicios. Al ser proporcional, lo que
+ * se ve lleno coincide con el avance real de la sesión; con partes iguales, un
+ * calentamiento de 3 ejercicios pesaría lo mismo que 6 de fuerza.
+ */
+function BlockProgress({ segments }) {
+  if (segments.length === 0) return null;
+
+  const total = segments.reduce((sum, seg) => sum + seg.total, 0);
+  const done = segments.reduce((sum, seg) => sum + seg.done, 0);
+  const detail = segments.map(seg => `${seg.label}, ${seg.done} de ${seg.total}`).join('. ');
+
+  return (
+    <div
+      className="mb-5"
+      role="img"
+      aria-label={`Progreso del entrenamiento: ${done} de ${total} ejercicios. ${detail}.`}
+    >
+      <div className="flex gap-1.5" aria-hidden="true">
+        {segments.map(seg => (
+          <span
+            key={seg.type}
+            data-testid={`block-bar-${seg.type}`}
+            className="h-2 rounded-full bg-surface2 overflow-hidden"
+            style={{ flex: `${seg.total} 1 0%` }}
+          >
+            <span
+              className={`block h-full rounded-full ${seg.dotClass} transition-[width] duration-500`}
+              style={{ width: `${seg.percent}%` }}
+            />
+          </span>
+        ))}
       </div>
 
-      <div className="w-full h-[3px] bg-border rounded-full overflow-hidden mb-3">
-        <div
-          className="h-full bg-accent rounded-full transition-all duration-500"
-          style={{ width: `${completionPercent(total, doneCount)}%` }}
-        />
+      <div className="flex gap-1.5 mt-2" aria-hidden="true">
+        {segments.map(seg => (
+          <span
+            key={seg.type}
+            className={`text-[9px] uppercase tracking-wider truncate ${seg.percent === 100 ? seg.colorClass : 'text-txt3'}`}
+            style={{ flex: `${seg.total} 1 0%` }}
+          >
+            {seg.label}
+          </span>
+        ))}
       </div>
-
-      {activeEx ? (
-        <div className="flex items-center gap-2.5">
-          <span className="w-6 h-6 rounded-md bg-accent/15 flex items-center justify-center shrink-0">
-            <ChevronUp size={12} className="text-accent rotate-90" aria-hidden="true" />
-          </span>
-          <span className="flex-1 min-w-0">
-            <span className="block text-xs font-semibold text-txt truncate">{activeEx.name}</span>
-            <span className="block text-[10px] text-txt3 mt-0.5">
-              Serie {activeEx.setNum} de {activeEx.totalSets}
-            </span>
-          </span>
-          <span className="flex gap-1 shrink-0">
-            {Array.from({ length: activeEx.totalSets }).map((_, i) => (
-              <span
-                key={i}
-                className={`w-1.5 h-1.5 rounded-full ${
-                  i < activeEx.setNum - 1 ? 'bg-accent'
-                    : i === activeEx.setNum - 1 ? 'bg-accent animate-pulse'
-                    : 'bg-border'
-                }`}
-              />
-            ))}
-          </span>
-        </div>
-      ) : current ? (
-        <div className="flex items-center gap-2.5">
-          <span className="w-6 h-6 rounded-md bg-accent/15 flex items-center justify-center shrink-0">
-            <ChevronUp size={12} className="text-accent rotate-90" aria-hidden="true" />
-          </span>
-          <span className="flex-1 min-w-0">
-            <span className="block text-xs font-semibold text-txt truncate">{current.exercise_name}</span>
-            <span className="block text-[10px] text-txt3 mt-0.5">
-              {blockLabel}
-              {isTimed(current)
-                ? ` · ${formatDuration(current.duration_seconds)}`
-                : current.reps
-                  ? ` · ${totalSets(current)}×${current.reps}${current.weight_kg ? ` · ${current.weight_kg}kg` : ''}`
-                  : ''}
-            </span>
-          </span>
-        </div>
-      ) : (
-        <p className="text-xs text-txt3">Todos los ejercicios completados</p>
-      )}
-    </motion.button>
+    </div>
   );
 }
 
@@ -324,15 +296,6 @@ function WeekStrip({ sessions, today }) {
         );
       })}
     </ul>
-  );
-}
-
-function Stat({ val, label }) {
-  return (
-    <div className="flex-1 text-center py-3 border-r border-border last:border-r-0">
-      <div className="font-metric text-2xl font-bold">{val}</div>
-      <div className="text-[10px] text-txt3 uppercase tracking-wider mt-0.5">{label}</div>
-    </div>
   );
 }
 

@@ -25,6 +25,10 @@
 body {
   background: #080808;
   min-height: 100vh;
+  /* En iOS `100vh` mide la ventana con la barra del navegador retraída, así que
+     el body queda más alto que el área visible y sobra un scroll muerto por
+     debajo del marco. `dvh` sí acompaña a la barra. */
+  min-height: 100dvh;
   display: flex; flex-direction: column;
   align-items: center; justify-content: flex-start;
   padding: 32px 16px 48px;
@@ -32,6 +36,14 @@ body {
   color: var(--color-txt);
   -webkit-font-smoothing: antialiased;
 }
+
+/* `#root` es hijo flex de un body con `align-items: center`, o sea que su ancho
+   lo decide el contenido (shrink-to-fit), no el viewport. Las pantallas que se
+   montan fuera del `.phone-frame` — Login, ResetPassword y los estados de carga
+   y error de `App.jsx` — heredaban ese ancho, y la tarjeta terminaba tan
+   angosta como su línea de texto más larga. En escritorio pasa desapercibido;
+   en un móvil de 390px la tarjeta queda flotando en el centro. */
+#root { width: 100%; }
 
 /* ── PHONE FRAME ── */
 .phone-frame {
@@ -173,7 +185,9 @@ body {
 
 /* ── LOGIN ── */
 .login-wrap {
-  min-height: 100vh; display: flex; flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex; flex-direction: column;
   align-items: center; justify-content: center; padding: 20px;
   background: var(--color-bg);
 }
@@ -274,7 +288,11 @@ input::-ms-reveal,
 input::-ms-clear { display: none; }
 input::-webkit-credentials-auto-fill-button,
 input::-webkit-contacts-auto-fill-button { display: none !important; visibility: hidden; }
-input[type="password"]::-webkit-textfield-decoration-container { display: none; }
+/* No ocultar `::-webkit-textfield-decoration-container`: ese pseudo no es un
+   icono nativo, es el contenedor que envuelve el texto del propio campo.
+   Blink ya no lo expone, así que en escritorio la regla no hacía nada, pero
+   WebKit sí lo expone: en iOS el campo de contraseña se quedaba sin
+   placeholder y colapsado a una línea. */
 
 /* ── SKELETON ── */
 .skeleton {
@@ -325,6 +343,16 @@ button:disabled { cursor: default; }
   .status-bar  { display: none; }
   .screen      { padding-top: 16px; }
   .screen--chat { padding-top: 0; }
+
+  /* iOS hace zoom al enfocar cualquier control cuyo texto mida menos de 16px,
+     y de ese zoom no se vuelve solo: la pantalla queda corrida. Los campos
+     traen la utilidad `text-sm` (14px) de Tailwind, así que hace falta más
+     especificidad que una clase para pisarla: `:is([type=...])` la aporta sin
+     recurrir a `!important`. */
+  input:is([type="text"], [type="email"], [type="password"], [type="number"],
+           [type="search"], [type="tel"], [type="url"]) {
+    font-size: 16px;
+  }
 }
 
 /* ── REDUCED MOTION ── */

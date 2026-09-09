@@ -67,6 +67,81 @@ export function completionPercent(total, done) {
   return Math.max(0, Math.min(100, Math.round((done / total) * 100)));
 }
 
+/**
+ * ¿El ejercicio está hecho?
+ *
+ * Con una sesión en curso manda `doneIds` (lo que va marcando el modal, que
+ * todavía no llegó a la base); si no, vale el `completed` que trae la fila.
+ * Se unen los dos porque `doneIds` arranca justamente desde `completed`.
+ */
+export function isExerciseDone(exercise, doneIds = null) {
+  if (doneIds?.has?.(exercise?.id)) return true;
+  return !!exercise?.completed;
+}
+
+/**
+ * Progreso por bloque, en orden y sin los bloques vacíos.
+ * Alimenta la barra segmentada de Inicio: una parte por cada bloque que toca
+ * ese día.
+ */
+export function blockProgress(exercises = [], doneIds = null) {
+  return groupByBlock(exercises).map(({ type, label, dotClass, colorClass, exercises: list }) => {
+    const done = list.filter(ex => isExerciseDone(ex, doneIds)).length;
+    return { type, label, dotClass, colorClass, total: list.length, done, percent: completionPercent(list.length, done) };
+  });
+}
+
+// ── Título corto de la sesión ───────────────────────────────────────────────
+// La IA nombra las sesiones en inglés ("Lower A — Enfoque en Sentadilla"), que
+// en Inicio confunde. Ahí se muestra la zona del cuerpo en español, deducida de
+// `focus_areas`. Planes y el modal siguen usando el nombre completo.
+//
+// El orden de la lista define la prioridad: gana el primer grupo que aparezca
+// en `focus_areas`, que es el músculo principal del día.
+const FOCUS_GROUPS = [
+  { label: 'Piernas', region: 'inferior', muscles: ['cuadriceps', 'gluteos', 'isquiotibiales', 'femoral', 'gemelos', 'pantorrillas', 'aductores', 'abductores', 'pierna', 'soleo', 'tren inferior'] },
+  { label: 'Pecho',   region: 'superior', muscles: ['pecho', 'pectoral'] },
+  { label: 'Espalda', region: 'superior', muscles: ['espalda', 'dorsal', 'trapecio', 'romboides'] },
+  { label: 'Hombros', region: 'superior', muscles: ['hombro', 'deltoide', 'manguito rotador'] },
+  { label: 'Brazos',  region: 'superior', muscles: ['biceps', 'triceps', 'antebrazo', 'brazo'] },
+  { label: 'Core',    region: 'centro',   muscles: ['core', 'abdomen', 'abdominal', 'oblicuo', 'lumbar'] },
+];
+
+/**
+ * Minúsculas y sin acentos: `focus_areas` llega como "cuádriceps".
+ * `NFD` separa la letra de su tilde y `\p{M}` borra las marcas sueltas.
+ */
+function normalizeArea(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .trim();
+}
+
+function groupForArea(area) {
+  return FOCUS_GROUPS.find(group => group.muscles.some(muscle => area.includes(muscle))) ?? null;
+}
+
+/**
+ * Zona del cuerpo que toca la sesión, en una palabra.
+ * Si `focus_areas` no dice nada reconocible se cae al nombre original: es
+ * preferible un título en inglés a uno inventado.
+ */
+export function sessionFocusTitle(session) {
+  const areas = Array.isArray(session?.focus_areas) ? session.focus_areas : [];
+  const groups = areas.map(area => groupForArea(normalizeArea(area))).filter(Boolean);
+
+  if (groups.length === 0) {
+    return String(session?.name ?? '').trim() || 'Entrenamiento';
+  }
+
+  const regions = new Set(groups.map(group => group.region));
+  if (regions.has('inferior') && regions.has('superior')) return 'Cuerpo completo';
+
+  return groups[0].label;
+}
+
 /** `mm:ss` (o `hh:mm:ss` si pasa de una hora). */
 export function formatTimer(seconds) {
   const safe = Math.max(0, Math.floor(Number(seconds) || 0));

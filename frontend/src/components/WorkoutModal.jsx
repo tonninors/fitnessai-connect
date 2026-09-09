@@ -35,6 +35,21 @@ function firstPendingIn(block, doneIds) {
   return block?.exercises.find(ex => !doneIds.has(ex.id)) ?? null;
 }
 
+/** Cada cuánto se manda el tiempo entrenado al servidor mientras el reloj corre. */
+const SYNC_INTERVAL_MS = 30_000;
+
+/**
+ * Tiempo ya entrenado en una sesión, en ms: el mayor entre lo que guardó el
+ * servidor (`elapsed_seconds`) y lo que quedó en este navegador. El servidor
+ * cubre recargas y cambios de dispositivo; el navegador es más fino (se
+ * escribe cada segundo) y no depende de la red.
+ */
+function storedElapsedMs(session, storageKey) {
+  const local = Number.parseInt(localStorage.getItem(storageKey) ?? '', 10);
+  const remote = Math.floor(Number(session?.elapsed_seconds) || 0) * 1000;
+  return Math.max(Number.isFinite(local) ? local : 0, remote, 0);
+}
+
 export default function WorkoutModal({
   session,
   visible = true,
@@ -45,10 +60,17 @@ export default function WorkoutModal({
   onActiveExChange,
 }) {
   const rawExercises = session?.session_exercises;
+  const storageKey = `workout_elapsed_${session?.id}`;
+
+  // Tiempo ya entrenado en esta sesión (lo que guardó el servidor o este
+  // navegador). El modal arranca mostrándolo, no en 00:00, y el reloj sigue
+  // desde ahí: antes sólo se recuperaba al pulsar "Comenzar".
+  const [resumedMs] = useState(() => storedElapsedMs(session, storageKey));
+  const resuming = resumedMs > 0 || session?.status === 'in_progress';
 
   const [hr, setHr] = useState(null);
-  const [calories, setCalories] = useState(0);
-  const [seconds, setSeconds] = useState(0);
+  const [calories, setCalories] = useState(() => estimateCalories(Math.floor(resumedMs / 1000), session?.rpe_target));
+  const [seconds, setSeconds] = useState(() => Math.floor(resumedMs / 1000));
   const [restState, setRestState] = useState(null); // null | { remaining, total, done, nextSet, totalSets }
   const [blockIdx, setBlockIdx] = useState(0);
   const [timerStarted, setTimerStarted] = useState(false);
@@ -57,6 +79,9 @@ export default function WorkoutModal({
   // false = vista previa del ejercicio (aún se puede cambiar por otro);
   // true = series en curso (ya no se ofrece sustituirlo).
   const [exStarted, setExStarted] = useState(false);
+  // ¿Se está ejecutando la serie actual? Es lo que mueve el cronómetro: entre
+  // el final de un descanso y el "Empezar serie N" siguiente no se entrena.
+  const [serieRunning, setSerieRunning] = useState(false);
   const [replacements, setReplacements] = useState({}); // id de la fila → ejercicio sustituto
   const [altPanel, setAltPanel] = useState(null);       // null | { status, options, error }
   const [completedEx, setCompletedEx] = useState(
@@ -81,8 +106,17 @@ export default function WorkoutModal({
 
   const allDone = exercises.length > 0 && completedEx.size >= exercises.length;
 
-  const storageKey = `workout_start_${session?.id}`;
-  const startTimeRef = useRef(null);
+  // El cronómetro mide tiempo entrenado, no tiempo con el modal abierto: corre
+  // mientras se ejecuta una serie y durante el descanso entre series, y se
+  // detiene en cuanto el descanso termina o se salta, hasta que se empieza la
+  // serie siguiente. Antes arrancaba en "Comenzar entrenamiento" y ya no
+  // paraba, así que contaba también el rato de leer la vista previa.
+  const restRunning = restState != null && !restState.done;
+  const clockRunning = serieRunning || restRunning;
+
+  const accumulatedRef = useRef(resumedMs); // ms ya consolidados
+  const runningSinceRef = useRef(null);     // inicio del tramo en curso, o null en pausa
+  const lastSyncMsRef = useRef(resumedMs);  // último valor enviado al servidor
   const intervalRef = useRef(null);
   const restRef = useRef(null);
 
@@ -93,26 +127,82 @@ export default function WorkoutModal({
     clearInterval(restRef.current);
   }, []);
 
+  /** Reloj de pared: no acumula deriva si la pestaña queda en segundo plano. */
+  const elapsedMs = useCallback(() => (
+    accumulatedRef.current + (runningSinceRef.current == null ? 0 : Date.now() - runningSinceRef.current)
+  ), []);
+
+  const showElapsed = useCallback((ms) => {
+    const elapsed = Math.floor(ms / 1000);
+    setSeconds(elapsed);
+    setCalories(estimateCalories(elapsed, session?.rpe_target));
+  }, [session?.rpe_target]);
+
+  /**
+   * Guarda el tiempo entrenado en el servidor, sobre la propia sesión. Si la
+   * red falla queda el localStorage; se vuelve a intentar en la siguiente pausa
+   * o sincronización.
+   */
+  const syncElapsed = useCallback((ms) => {
+    lastSyncMsRef.current = ms;
+    api.patch(`/workouts/sessions/${session?.id}/progress`, { elapsed_seconds: Math.floor(ms / 1000) })
+      .catch(() => { /* se reintenta más adelante */ });
+  }, [session?.id]);
+
   const startTimer = useCallback(() => {
     if (timerStarted) return;
     setTimerStarted(true);
     api.post(`/workouts/sessions/${session.id}/start`, {}).catch(() => { /* la sesión sigue en local */ });
 
-    const stored = localStorage.getItem(storageKey);
-    const parsed = stored ? Number.parseInt(stored, 10) : NaN;
-    startTimeRef.current = Number.isFinite(parsed) ? parsed : Date.now();
-    localStorage.setItem(storageKey, String(startTimeRef.current));
+    // Arranca en pausa desde lo ya entrenado (`accumulatedRef`): el reloj
+    // corre cuando empieza la primera serie.
+    runningSinceRef.current = null;
+    showElapsed(accumulatedRef.current);
 
-    // Reloj de pared: no acumula deriva si la pestaña queda en segundo plano.
     intervalRef.current = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
-      setSeconds(elapsed);
-      setCalories(estimateCalories(elapsed, session?.rpe_target));
+      if (runningSinceRef.current == null) return; // en pausa: no hay nada que sumar
+      const ms = elapsedMs();
+      showElapsed(ms);
+      // Cada tic queda en el navegador: una recarga pierde menos de un segundo.
+      // Al servidor va cada SYNC_INTERVAL_MS para no martillearlo.
+      localStorage.setItem(storageKey, String(ms));
+      if (ms - lastSyncMsRef.current >= SYNC_INTERVAL_MS) syncElapsed(ms);
       if (hasWearable) {
         setHr(h => Math.round((h ?? 132) + 8 * Math.sin(Date.now() / 4000) + (Math.random() - 0.5) * 4));
       }
     }, 1000);
-  }, [timerStarted, session?.id, session?.rpe_target, hasWearable, storageKey]);
+  }, [timerStarted, session?.id, hasWearable, storageKey, elapsedMs, showElapsed, syncElapsed]);
+
+  // Arranca y pausa el cronómetro siguiendo a `clockRunning`.
+  useEffect(() => {
+    if (!timerStarted) return;
+
+    if (clockRunning) {
+      runningSinceRef.current ??= Date.now();
+      return;
+    }
+    if (runningSinceRef.current != null) {
+      accumulatedRef.current += Date.now() - runningSinceRef.current;
+      runningSinceRef.current = null;
+      localStorage.setItem(storageKey, String(accumulatedRef.current));
+      syncElapsed(accumulatedRef.current);
+      showElapsed(accumulatedRef.current);
+    }
+  }, [clockRunning, timerStarted, storageKey, showElapsed, syncElapsed]);
+
+  // Al pasar a segundo plano (otra pestaña, otra app en el móvil) se guarda el
+  // tramo en curso: si el navegador descarta la página, no se pierde.
+  useEffect(() => {
+    if (!timerStarted) return undefined;
+    const onVisibility = () => {
+      if (document.visibilityState !== 'hidden' || runningSinceRef.current == null) return;
+      const ms = elapsedMs();
+      localStorage.setItem(storageKey, String(ms));
+      syncElapsed(ms);
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [timerStarted, storageKey, elapsedMs, syncElapsed]);
 
   function startRest(totalSeconds, nextSet = null, setsTotal = null) {
     clearInterval(restRef.current);
@@ -144,6 +234,7 @@ export default function WorkoutModal({
     setAltPanel(null);
     setActiveSetNum(1);
     setExStarted(false);
+    setSerieRunning(false);
     if (!ex) {
       setActiveExId(null);
       onActiveExChange?.(null);
@@ -153,10 +244,16 @@ export default function WorkoutModal({
     onActiveExChange?.({ id: ex.id, name: ex.exercise_name, setNum: 1, totalSets: totalSets(ex) });
   }
 
-  /** Cierra la vista previa y arranca las series del ejercicio propuesto. */
+  /** Cierra la vista previa y arranca la primera serie del ejercicio. */
   function beginExercise() {
     setAltPanel(null);
     setExStarted(true);
+    setSerieRunning(true);
+  }
+
+  /** Reanuda el cronómetro para la serie siguiente, tras el descanso. */
+  function beginSerie() {
+    setSerieRunning(true);
   }
 
   /** Arranca el cronómetro y activa el primer ejercicio pendiente. */
@@ -178,6 +275,8 @@ export default function WorkoutModal({
   /** Cierra una serie del ejercicio activo (o el ejercicio, si es la última). */
   async function completeSerie(ex) {
     const sets = totalSets(ex);
+    // Se cierra la serie: el cronómetro sólo sigue si arranca un descanso.
+    setSerieRunning(false);
 
     if (isTimed(ex) || activeSetNum >= sets) {
       const done = new Set(completedEx).add(ex.id);
@@ -237,14 +336,29 @@ export default function WorkoutModal({
     }
   }
 
-  function stopTimers() {
+  /**
+   * Para los temporizadores. El tiempo entrenado se conserva (navegador y
+   * servidor) salvo que se pida olvidarlo, que es sólo al finalizar la sesión.
+   */
+  function stopTimers({ forget = false } = {}) {
     clearInterval(intervalRef.current);
     clearInterval(restRef.current);
-    localStorage.removeItem(storageKey);
+    if (runningSinceRef.current != null) {
+      accumulatedRef.current += Date.now() - runningSinceRef.current;
+      runningSinceRef.current = null;
+    }
+    if (forget) {
+      localStorage.removeItem(storageKey);
+      return;
+    }
+    if (timerStarted) {
+      localStorage.setItem(storageKey, String(accumulatedRef.current));
+      syncElapsed(accumulatedRef.current);
+    }
   }
 
   async function handleFinish() {
-    stopTimers();
+    stopTimers({ forget: true });
     await api.patch(`/workouts/sessions/${session.id}/complete`, {
       actual_duration: Math.round(seconds / 60),
       actual_calories: Math.round(calories),
@@ -253,11 +367,13 @@ export default function WorkoutModal({
     onClose();
   }
 
+  // Cerrar no es terminar: la sesión sigue en curso en el servidor y el tiempo
+  // entrenado tiene que seguir ahí cuando se vuelva a abrir.
   const handleClose = useCallback(() => {
     stopTimers();
     onClose();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onClose, storageKey]);
+  }, [onClose, storageKey, timerStarted]);
 
   // Escape cierra primero el panel de alternativas; si no hay, minimiza.
   const altOpen = altPanel !== null;
@@ -323,39 +439,39 @@ export default function WorkoutModal({
           {completedEx.size} de {exercises.length} ejercicios completados
         </p>
 
-        {/* Métricas: compactas mientras hay un ejercicio en curso */}
-        <AnimatePresence mode="wait">
-          {activeExId ? (
-            <motion.div
-              key="compact"
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="flex items-center gap-4 mb-3 px-0.5"
-            >
+        {/* Métricas. En grande antes de empezar; compactas en la vista previa
+            del ejercicio; y con el ejercicio en marcha viven dentro de la
+            tarjeta, en el sitio de la imagen (`LiveClock`). Sin animación de
+            salida: el reloj no puede estar dos veces en pantalla. */}
+        {!activeExId && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+            className="metrics-row mb-4"
+          >
+            <Metric icon={Heart} color="text-red-400" label="FC bpm" value={hasWearable ? (hr ?? '—') : '—'} />
+            <Metric icon={Flame} color="text-accent" label="Kcal" value={Math.round(calories)} />
+            <Metric icon={Clock} color="text-blue" label="Tiempo" value={formatTimer(seconds)} />
+          </motion.div>
+        )}
+        {activeExId && !exStarted && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+            className="flex items-center gap-4 mb-3 px-0.5"
+          >
+            <span className="flex items-center gap-1.5 text-[11px] text-txt3">
+              <Clock size={11} className="text-blue" aria-hidden="true" />
+              <span aria-label="Tiempo transcurrido">{formatTimer(seconds)}</span>
+            </span>
+            <span className="flex items-center gap-1.5 text-[11px] text-txt3">
+              <Flame size={11} className="text-accent" aria-hidden="true" />{Math.round(calories)} kcal
+            </span>
+            {hasWearable && (
               <span className="flex items-center gap-1.5 text-[11px] text-txt3">
-                <Clock size={11} className="text-blue" aria-hidden="true" />
-                <span aria-label="Tiempo transcurrido">{formatTimer(seconds)}</span>
+                <Heart size={11} className="text-red-400" aria-hidden="true" />{hr ?? '—'} bpm
               </span>
-              <span className="flex items-center gap-1.5 text-[11px] text-txt3">
-                <Flame size={11} className="text-accent" aria-hidden="true" />{Math.round(calories)} kcal
-              </span>
-              {hasWearable && (
-                <span className="flex items-center gap-1.5 text-[11px] text-txt3">
-                  <Heart size={11} className="text-red-400" aria-hidden="true" />{hr ?? '—'} bpm
-                </span>
-              )}
-            </motion.div>
-          ) : (
-            <motion.div
-              key="full"
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="metrics-row mb-4"
-            >
-              <Metric icon={Heart} color="text-red-400" label="FC bpm" value={hasWearable ? (hr ?? '—') : '—'} />
-              <Metric icon={Flame} color="text-accent" label="Kcal" value={Math.round(calories)} />
-              <Metric icon={Clock} color="text-blue" label="Tiempo" value={formatTimer(seconds)} />
-            </motion.div>
-          )}
-        </AnimatePresence>
+            )}
+          </motion.div>
+        )}
 
         {exercises.length === 0 && (
           <p className="text-xs text-txt3 text-center py-6">Esta sesión no tiene ejercicios cargados.</p>
@@ -364,7 +480,7 @@ export default function WorkoutModal({
         {/* Antes de empezar: un único botón. La app decide qué toca. */}
         {!timerStarted && exercises.length > 0 && !allDone && (
           <button type="button" className="btn btn-primary mb-3" onClick={handleStart}>
-            <Play size={16} aria-hidden="true" /> Comenzar entrenamiento
+            <Play size={16} aria-hidden="true" /> {resuming ? 'Continuar entrenamiento' : 'Comenzar entrenamiento'}
           </button>
         )}
 
@@ -389,7 +505,14 @@ export default function WorkoutModal({
                   block={currentBlock}
                   setNum={activeSetNum}
                   started={exStarted}
+                  serieRunning={serieRunning}
+                  clockRunning={clockRunning}
+                  seconds={seconds}
+                  calories={calories}
+                  hr={hr}
+                  hasWearable={hasWearable}
                   onBegin={beginExercise}
+                  onBeginSerie={beginSerie}
                   onCompleteSerie={() => completeSerie(activeEx)}
                 />
               )}
@@ -512,12 +635,59 @@ function ExerciseMedia({ exercise, block }) {
 }
 
 /**
- * Ejercicio que toca ahora. Tiene dos estados:
- * - `started` false: vista previa. Se ve qué viene y se decide empezarlo o
- *   pedir un sustituto.
- * - `started` true: series en curso.
+ * Cronómetro en grande. Ocupa el sitio de la imagen mientras el ejercicio
+ * está en marcha: la referencia visual ya se vio en la vista previa y lo que
+ * hace falta ahora es leer el tiempo y el gasto con el teléfono en el suelo.
+ * En este estado es el único reloj en pantalla (la fila compacta se retira),
+ * así que conserva el `aria-label` del tiempo transcurrido.
  */
-function ActiveExerciseCard({ exercise, block, setNum, started, onBegin, onCompleteSerie }) {
+function LiveClock({ seconds, calories, hr, hasWearable, running }) {
+  return (
+    <motion.div
+      role="timer"
+      aria-label="Cronómetro del ejercicio"
+      initial={{ opacity: 0, scale: 0.92 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ type: 'spring', damping: 22, stiffness: 260 }}
+      className="w-full h-36 flex flex-col items-center justify-center gap-2"
+      style={{ background: 'linear-gradient(135deg,#1a1a1a 0%,#222 100%)' }}
+    >
+      <p className="flex items-center gap-1.5 text-[10px] text-txt3 uppercase tracking-widest">
+        <Clock size={11} className="text-blue" aria-hidden="true" />
+        {running ? 'Tiempo entrenado' : 'En pausa'}
+      </p>
+      <span
+        className={`font-metric text-6xl font-bold leading-none ${running ? 'text-blue' : 'text-txt2'}`}
+        aria-label="Tiempo transcurrido"
+      >
+        {formatTimer(seconds)}
+      </span>
+      <div className="flex items-center gap-5 mt-1">
+        <span className="flex items-center gap-1.5 font-metric text-2xl font-bold text-accent leading-none">
+          <Flame size={15} aria-hidden="true" />{Math.round(calories)} kcal
+        </span>
+        {hasWearable && (
+          <span className="flex items-center gap-1.5 font-metric text-2xl font-bold text-red-400 leading-none">
+            <Heart size={15} aria-hidden="true" />{hr ?? '—'} bpm
+          </span>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+/**
+ * Ejercicio que toca ahora. Tiene dos estados:
+ * - `started` false: vista previa. Se ve qué viene (con su imagen) y se
+ *   decide empezarlo o pedir un sustituto.
+ * - `started` true: series en curso. La imagen deja su sitio al cronómetro
+ *   en grande: la referencia ya se vio y ahora lo que importa es el tiempo.
+ */
+function ActiveExerciseCard({
+  exercise, block, setNum, started, serieRunning,
+  clockRunning, seconds, calories, hr, hasWearable,
+  onBegin, onBeginSerie, onCompleteSerie,
+}) {
   const timed = isTimed(exercise);
   const sets = totalSets(exercise);
   const isLastSet = timed || setNum >= sets;
@@ -531,7 +701,9 @@ function ActiveExerciseCard({ exercise, block, setNum, started, onBegin, onCompl
       className="rounded-2xl border border-border overflow-hidden mb-3"
       style={{ background: 'var(--color-surface2)' }}
     >
-      <ExerciseMedia exercise={exercise} block={block} />
+      {started
+        ? <LiveClock seconds={seconds} calories={calories} hr={hr} hasWearable={hasWearable} running={clockRunning} />
+        : <ExerciseMedia exercise={exercise} block={block} />}
 
       <div className="p-4">
         <p className="text-base font-bold mb-1">{exercise.exercise_name}</p>
@@ -584,15 +756,21 @@ function ActiveExerciseCard({ exercise, block, setNum, started, onBegin, onCompl
           </div>
         )}
 
-        {started ? (
+        {!started ? (
+          <button type="button" className="btn btn-primary" style={{ padding: '11px' }} onClick={onBegin}>
+            <Play size={15} aria-hidden="true" /> Empezar ejercicio
+          </button>
+        ) : serieRunning ? (
           <button type="button" className="btn btn-primary" style={{ padding: '11px' }} onClick={onCompleteSerie}>
             {isLastSet
               ? <><Check size={15} aria-hidden="true" /> Terminar ejercicio</>
               : <><ChevronRight size={15} aria-hidden="true" /> Serie {setNum} lista</>}
           </button>
         ) : (
-          <button type="button" className="btn btn-primary" style={{ padding: '11px' }} onClick={onBegin}>
-            <Play size={15} aria-hidden="true" /> Empezar ejercicio
+          // Tras el descanso el cronómetro queda parado: hay que decir cuándo
+          // arranca la serie siguiente para que vuelva a contar.
+          <button type="button" className="btn btn-primary" style={{ padding: '11px' }} onClick={onBeginSerie}>
+            <Play size={15} aria-hidden="true" /> Empezar serie {setNum}
           </button>
         )}
       </div>
