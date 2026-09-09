@@ -32,6 +32,7 @@ function renderPlans(props = {}) {
       runningSession={null}
       onResumeWorkout={vi.fn()}
       liveCompleted={null}
+      liveActiveEx={null}
       {...props}
     />,
   );
@@ -123,17 +124,45 @@ describe('Plans — sesión activa', () => {
     expect(screen.getByText('Press Banca con Barra')).toBeInTheDocument();
   });
 
-  it('marca como "Siguiente" el primer ejercicio pendiente por orden de bloque', async () => {
-    // Regresión: la marca se calculaba con `[...done].length === globalIdx`,
-    // lo que la colocaba en un ejercicio arbitrario al completar fuera de orden.
-    const warm = makeExercise({ id: 'w', exercise_type: 'warmup', duration_seconds: 45, order_num: 1 });
-    const st = makeExercise({ id: 's', exercise_type: 'strength', order_num: 2 });
-    const session = makeSession({ scheduled_date: todayISO(), session_exercises: [st, warm] });
+  it('pinta los ejercicios en el orden del modal (bloque y order_num), no en el de la BD', async () => {
+    // Regresión: la lista salía tal como llegaba de la BD, así que el modal
+    // activaba un ejercicio y la lista daba por siguiente a otro.
+    const warm = makeExercise({ id: 'w', exercise_name: 'Gato-Camello', exercise_type: 'warmup', duration_seconds: 45, order_num: 1 });
+    const squat = makeExercise({ id: 's1', exercise_name: 'Sentadilla Frontal', exercise_type: 'strength', order_num: 2 });
+    const hip = makeExercise({ id: 's2', exercise_name: 'Hip Thrust con Barra', exercise_type: 'strength', order_num: 3 });
+    const session = makeSession({ scheduled_date: todayISO(), session_exercises: [hip, warm, squat] });
     mockApi({ plan: makePlan({ workout_sessions: [session] }) });
     renderPlans();
 
-    await waitFor(() => expect(screen.getByTestId('exercise-w')).toHaveAttribute('data-next', 'true'));
-    expect(screen.getByTestId('exercise-s')).toHaveAttribute('data-next', 'false');
+    await screen.findByText('Calentamiento');
+    const ids = screen.getAllByTestId(/^exercise-/).map(row => row.dataset.testid);
+    expect(ids).toEqual(['exercise-w', 'exercise-s1', 'exercise-s2']);
+  });
+
+  it('resalta con un contorno el ejercicio en curso, sin rótulo de "Siguiente"', async () => {
+    const warm = makeExercise({ id: 'w', exercise_type: 'warmup', duration_seconds: 45, order_num: 1 });
+    const squat = makeExercise({ id: 's1', exercise_name: 'Sentadilla Frontal', exercise_type: 'strength', order_num: 2 });
+    const session = makeSession({ scheduled_date: todayISO(), session_exercises: [warm, squat] });
+    mockApi({ plan: makePlan({ workout_sessions: [session] }) });
+    renderPlans({
+      runningSession: session,
+      liveCompleted: new Set(['w']),
+      liveActiveEx: { id: 's1', name: 'Sentadilla Frontal', setNum: 1, totalSets: 4 },
+    });
+
+    await waitFor(() => expect(screen.getByTestId('exercise-s1')).toHaveAttribute('aria-current', 'step'));
+    expect(screen.getByTestId('exercise-w')).not.toHaveAttribute('aria-current');
+    expect(screen.queryByText(/siguiente/i)).not.toBeInTheDocument();
+  });
+
+  it('sin entrenamiento en curso no resalta ninguna fila', async () => {
+    const session = makeSession({ scheduled_date: todayISO() });
+    mockApi({ plan: makePlan({ workout_sessions: [session] }) });
+    renderPlans();
+
+    await screen.findByText('Calentamiento');
+    expect(document.querySelector('[aria-current="step"]')).toBeNull();
+    expect(screen.queryByText(/siguiente/i)).not.toBeInTheDocument();
   });
 
   it('inicia el entrenamiento de la sesión activa', async () => {

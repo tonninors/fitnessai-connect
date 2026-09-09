@@ -5,7 +5,7 @@ import { api } from '../api/client.js';
 import { useApiData } from '../hooks/useApiData.js';
 import ErrorState from '../components/ErrorState.jsx';
 import { todayISO, formatDate, weekdayShort } from '../lib/dates.js';
-import { groupByBlock, isTimed, totalSets, formatDuration, nextPendingExercise } from '../lib/workout.js';
+import { groupByBlock, sortByBlock, isTimed, totalSets, formatDuration } from '../lib/workout.js';
 
 /** Parámetros por defecto cuando el perfil aún no tiene onboarding guardado. */
 const PLAN_DEFAULTS = {
@@ -49,7 +49,7 @@ export function completedBySession(plan) {
   return result;
 }
 
-export default function Plans({ onStartWorkout, runningSession, onResumeWorkout, liveCompleted }) {
+export default function Plans({ onStartWorkout, runningSession, onResumeWorkout, liveCompleted, liveActiveEx }) {
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState(null);
   const [finishing, setFinishing] = useState(false);
@@ -78,12 +78,17 @@ export default function Plans({ onStartWorkout, runningSession, onResumeWorkout,
   const allDone = !!plan && !activeSession;
   const isCompleted = activeSession?.status === 'completed';
 
-  const exList = activeSession?.session_exercises ?? [];
-  const done = runningSession?.id === activeSession?.id && liveCompleted != null
+  // Mismo orden que sigue el modal: por bloque y, dentro, por `order_num`.
+  // Sin ordenar, las filas salían tal como llegaban de la BD y el ejercicio
+  // que el modal activaba no era el que la lista daba por siguiente.
+  const exList = sortByBlock(activeSession?.session_exercises ?? []);
+  const isLive = runningSession?.id === activeSession?.id;
+  const done = isLive && liveCompleted != null
     ? liveCompleted
     : (completedBySession(plan)[activeSession?.id] ?? new Set());
   const allExercisesDone = exList.length > 0 && done.size >= exList.length;
-  const nextExercise = nextPendingExercise(exList, done);
+  // Ejercicio que el modal tiene en curso: en la lista se resalta con un contorno.
+  const currentExId = isLive ? (liveActiveEx?.id ?? null) : null;
 
   async function refresh() {
     const [p, u] = await Promise.all([api.get('/workouts/plan'), api.get('/workouts/upcoming')]);
@@ -229,7 +234,7 @@ export default function Plans({ onStartWorkout, runningSession, onResumeWorkout,
                         index={i + 1}
                         type={type}
                         isDone={done.has(ex.id)}
-                        isNext={!isCompleted && nextExercise?.id === ex.id}
+                        isCurrent={ex.id === currentExId}
                       />
                     ))}
                   </ul>
@@ -313,22 +318,26 @@ function PlansSkeleton() {
   );
 }
 
-function ExerciseRow({ exercise, index, type, isDone, isNext }) {
+/**
+ * Fila de la lista. `isCurrent` es el ejercicio que el modal tiene en curso:
+ * se distingue con un contorno en acento, sin rótulos.
+ */
+function ExerciseRow({ exercise, index, type, isDone, isCurrent }) {
   const timed = isTimed(exercise);
 
   return (
     <li
       data-testid={`exercise-${exercise.id}`}
-      data-next={isNext ? 'true' : 'false'}
+      aria-current={isCurrent ? 'step' : undefined}
       className={`flex items-center gap-3.5 px-4 py-3.5 border-b border-border last:border-b-0 transition-all
-        ${isDone ? 'opacity-40' : ''} ${isNext ? 'bg-accent/5' : ''}`}
+        ${isDone ? 'opacity-40' : ''} ${isCurrent ? 'bg-accent/5 outline-1 -outline-offset-1 outline-accent' : ''}`}
     >
       <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold shrink-0 transition-colors
         ${isDone ? 'bg-accent text-white'
+          : isCurrent ? 'bg-accent/20 text-accent'
           : type === 'warmup' ? 'bg-green-dim text-green'
           : type === 'cooldown' ? 'bg-blue-dim text-blue'
           : type === 'cardio' ? 'bg-orange-500/15 text-[#f97316]'
-          : isNext ? 'bg-accent/20 text-accent'
           : 'bg-surface2 text-txt3'}`}
       >
         {isDone ? <Check size={14} aria-hidden="true" /> : index}
@@ -362,9 +371,6 @@ function ExerciseRow({ exercise, index, type, isDone, isNext }) {
         </span>
       </span>
 
-      {isNext && !isDone && (
-        <span className="text-[10px] font-bold text-accent uppercase tracking-wider shrink-0">Siguiente</span>
-      )}
     </li>
   );
 }
@@ -423,7 +429,7 @@ function SessionSheet({ session, onClose, onStart }) {
 
           {session.session_exercises?.length > 0 && (
             <ul className="card !p-0 overflow-hidden mb-5 list-none">
-              {session.session_exercises.map((ex, i) => (
+              {sortByBlock(session.session_exercises).map((ex, i) => (
                 <li key={ex.id} className="flex items-center gap-3.5 px-4 py-3 border-b border-border last:border-b-0">
                   <span className="w-7 h-7 rounded-lg bg-surface2 flex items-center justify-center text-xs font-bold text-txt3 shrink-0">
                     {i + 1}
