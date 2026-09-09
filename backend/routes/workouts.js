@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { getSupabase } from '../config/supabase.js';
-import { asyncHandler, throwOnSupabaseError, forbidden, notFound } from '../lib/http.js';
+import { asyncHandler, throwOnSupabaseError, badRequest, forbidden, notFound } from '../lib/http.js';
 import { optionalInt, optionalNumber, requireUuid } from '../lib/validation.js';
 import { todayISO, addDays } from '../lib/dates.js';
 import { computeStreak } from '../lib/streak.js';
@@ -19,6 +19,7 @@ const router = Router();
 
 const UPCOMING_LIMIT = 5;
 const ALTERNATIVES_MAX_TOKENS = 400;
+const MAX_ELAPSED_SECONDS = 24 * 60 * 60;
 
 /** Columnas del catálogo que necesitan las alternativas y la media enlazada. */
 const CATALOG_COLUMNS = 'id, name, muscle_groups, equipment, description, image_url, video_url, exercise_type, '
@@ -96,7 +97,7 @@ router.get('/plan', requireAuth, asyncHandler(async (req, res) => {
       id, name, description, total_weeks, current_week, sport, focus_areas, ai_generated,
       trainer_profiles(full_name, rating),
       workout_sessions(
-        id, name, scheduled_date, status, estimated_duration, focus_areas, rpe_target, week_number, day_order,
+        id, name, scheduled_date, status, estimated_duration, focus_areas, rpe_target, week_number, day_order, elapsed_seconds,
         session_exercises(
           id, exercise_name, exercise_id, order_num, sets, reps, weight_kg, rest_seconds, duration_seconds, exercise_type, completed,
           exercises(image_url, video_url, description)
@@ -146,6 +147,28 @@ router.post('/sessions/:id/start', requireAuth, asyncHandler(async (req, res) =>
   throwOnSupabaseError(error);
   if (!data) throw notFound('Sesión no encontrada');
   res.json(data);
+}));
+
+// PATCH tiempo entrenado (segundos, sin pausas) de una sesión en curso.
+// El cliente lo sincroniza mientras entrena para que una recarga, un cambio de
+// pestaña o de dispositivo no pierdan el cronómetro. Sólo avanza: un envío
+// rezagado con un valor menor no pisa a uno más reciente.
+router.patch('/sessions/:id/progress', requireAuth, asyncHandler(async (req, res) => {
+  const supabase = getSupabase();
+  await assertSessionOwnership(supabase, req.params.id, req.user.id);
+
+  const elapsed = optionalInt(req.body?.elapsed_seconds, 'elapsed_seconds', { min: 0, max: MAX_ELAPSED_SECONDS });
+  if (elapsed === null) throw badRequest('elapsed_seconds es obligatorio');
+
+  const { error } = await supabase
+    .from('workout_sessions')
+    .update({ elapsed_seconds: elapsed })
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id)
+    .lt('elapsed_seconds', elapsed);
+
+  throwOnSupabaseError(error);
+  res.status(204).end();
 }));
 
 // PATCH completar sesión

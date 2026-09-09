@@ -33,7 +33,7 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
 
     supabase.from('workout_sessions')
       .select(`
-        id, name, day_order, estimated_duration, estimated_calories, rpe_target, focus_areas, status, ai_insight,
+        id, name, day_order, estimated_duration, estimated_calories, rpe_target, focus_areas, status, ai_insight, elapsed_seconds,
         session_exercises(
           id, exercise_name, exercise_id, order_num, sets, reps, weight_kg, rest_seconds, duration_seconds, exercise_type, completed,
           exercises(image_url, video_url, description)

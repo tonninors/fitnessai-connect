@@ -128,6 +128,7 @@ Weeks 2–12 are still pending — see `COMPONENTES-PENDIENTES.md`.
 | GET | `/api/workouts/plan` | ✓ | Active plan with sessions + exercises |
 | GET | `/api/workouts/upcoming` | ✓ | Next 5 pending sessions |
 | POST | `/api/workouts/sessions/:id/start` | ✓ | Mark `in_progress` |
+| PATCH | `/api/workouts/sessions/:id/progress` | ✓ | Sync `elapsed_seconds` (monotonic, never decreases); 204 |
 | PATCH | `/api/workouts/sessions/:id/complete` | ✓ | Close session + recalc streak |
 | PATCH | `/api/workouts/sessions/:sid/exercises/:eid/toggle` | ✓ | Mark exercise done |
 | POST | `/api/workouts/sessions/:sid/exercises/:eid/sets` | ✓ | Upsert set (ownership-checked) |
@@ -153,6 +154,7 @@ There are **no** `/auth/signup`, `/auth/signin`, `/auth/signout` or `/auth/reset
 **WorkoutModal flow**
 - Exercises are grouped into `warmup → strength → cardio → cooldown` via `groupByBlock()`. Only the current block is visible; "Siguiente fase" appears when the block is done.
 - The timer starts on the first exercise interaction, not on open. It uses wall-clock (`Date.now() - startTimeRef.current`) — never increment a counter with `setInterval`.
+- Trained time survives reloads and device changes: `localStorage` every tick, `PATCH …/progress` on pause, every 30 s while running and on `visibilitychange` → hidden. The modal resumes from `max(session.elapsed_seconds, localStorage)` and the button reads "Continuar entrenamiento". Closing (X) keeps the time; only "Finalizar sesión" clears it.
 - Strength: each "Serie N lista" logs a set and starts the rest timer; the last set completes the exercise. Timed exercises (warmup/cooldown/cardio): a single "Terminar".
 - Calories come from `estimateCalories()` in `lib/workout.js` (RPE-scaled kcal/min), not an ad-hoc formula.
 - If `hasWearable` is false, HR shows `—`. Never simulate HR without a wearable.

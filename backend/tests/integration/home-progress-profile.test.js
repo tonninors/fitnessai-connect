@@ -82,6 +82,8 @@ describe('GET /api/home', () => {
     expect(todayQuery.columns).toContain('exercise_type');
     expect(todayQuery.columns).toContain('duration_seconds');
     expect(todayQuery.columns).toContain('order_num');
+    // El modal reanuda el cronómetro desde aquí.
+    expect(todayQuery.columns).toContain('elapsed_seconds');
   });
 
   it('consulta la semana lunes→domingo que contiene hoy', async () => {

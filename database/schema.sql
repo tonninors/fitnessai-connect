@@ -162,6 +162,7 @@ CREATE TABLE workout_sessions (
   completed_at          TIMESTAMPTZ,
   estimated_duration    INT,   -- minutes
   actual_duration       INT,   -- minutes
+  elapsed_seconds       INT    NOT NULL DEFAULT 0, -- tiempo entrenado (sin pausas), sincronizado durante la sesión
   estimated_calories    INT,
   actual_calories       INT,
   rpe_target            INT    CHECK (rpe_target BETWEEN 1 AND 10),
@@ -532,6 +533,14 @@ ALTER TABLE exercises ADD CONSTRAINT exercises_laterality_check
 -- Índice para acotar candidatos por familia al proponer alternativas.
 CREATE INDEX IF NOT EXISTS idx_exercises_family
   ON exercises (exercise_family) WHERE is_public = TRUE;
+
+-- 7. Tiempo entrenado por sesión (segundos, sin pausas). El cronómetro vivía
+--    sólo en el navegador y una recarga o un cambio de dispositivo lo perdía.
+--    El cliente lo sincroniza en PATCH /api/workouts/sessions/:id/progress y
+--    /api/workouts/plan y /api/home lo devuelven para reanudar desde ahí.
+--    (Mismo contenido que database/migrations/2026-09-08-tiempo-entrenado.sql.)
+ALTER TABLE workout_sessions
+  ADD COLUMN IF NOT EXISTS elapsed_seconds INT NOT NULL DEFAULT 0;
 
 -- ── AUTO-CREATE PROFILE ON SIGNUP ───────────────────────────
 CREATE OR REPLACE FUNCTION handle_new_user()

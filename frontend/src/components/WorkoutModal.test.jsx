@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, within, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const api = { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() };
@@ -234,10 +234,14 @@ describe('WorkoutModal — un ejercicio a la vez', () => {
   });
 });
 
+/**
+ * La media se ve en la vista previa: una vez empezado el ejercicio su sitio lo
+ * ocupa el cronómetro (ver el bloque «el cronómetro ocupa el sitio de la imagen»).
+ */
 describe('WorkoutModal — media de referencia', () => {
   it('sin URLs cae al placeholder del bloque', async () => {
     renderModal();
-    await comenzar();
+    await verVistaPrevia();
 
     expect(await screen.findByText('sin imagen')).toBeInTheDocument();
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
@@ -256,7 +260,7 @@ describe('WorkoutModal — media de referencia', () => {
         }),
       ],
     });
-    await comenzar();
+    await verVistaPrevia();
 
     const img = await screen.findByRole('img', { name: /demostración de remo con barra/i });
     expect(img).toHaveAttribute('src', 'https://cdn.dorcher.app/remo-con-barra.jpg');
@@ -277,7 +281,7 @@ describe('WorkoutModal — media de referencia', () => {
         }),
       ],
     });
-    await comenzar();
+    await verVistaPrevia();
 
     const media = await screen.findByRole('img', { name: /demostración de sentadilla frontal/i });
     expect(media.tagName).toBe('VIDEO');
@@ -581,13 +585,17 @@ describe('WorkoutModal — controles', () => {
     expect(onMinimize).toHaveBeenCalledTimes(2);
   });
 
-  it('cerrar limpia el cronómetro guardado', async () => {
+  it('cerrar conserva el tiempo entrenado: la sesión sigue en curso', async () => {
     const { session, onClose } = renderModal();
     await comenzar();
     await userEvent.click(screen.getByRole('button', { name: /cerrar entrenamiento/i }));
 
     expect(onClose).toHaveBeenCalled();
-    expect(localStorage.getItem(`workout_elapsed_${session.id}`)).toBeNull();
+    expect(localStorage.getItem(`workout_elapsed_${session.id}`)).not.toBeNull();
+    expect(api.patch).toHaveBeenCalledWith(
+      `/workouts/sessions/${session.id}/progress`,
+      { elapsed_seconds: expect.any(Number) },
+    );
   });
 
   it('no renderiza nada cuando está minimizado', () => {
@@ -719,5 +727,200 @@ describe('WorkoutModal — el cronómetro sólo corre entrenando', () => {
     await user.click(screen.getByRole('button', { name: /empezar ejercicio/i }));
     await correr(3000);
     marca(segundos(enPrevia) + 3);
+  });
+});
+
+describe('WorkoutModal — el cronómetro ocupa el sitio de la imagen', () => {
+  it('en vista previa se ve la imagen; al empezar, el reloj en grande', async () => {
+    renderModal();
+    await verVistaPrevia();
+
+    expect(await screen.findByText('sin imagen')).toBeInTheDocument();
+    expect(screen.queryByRole('timer')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /empezar ejercicio/i }));
+
+    const reloj = await screen.findByRole('timer', { name: /cronómetro del ejercicio/i });
+    expect(screen.queryByText('sin imagen')).not.toBeInTheDocument();
+    expect(within(reloj).getByLabelText('Tiempo transcurrido')).toHaveTextContent('00:00');
+    expect(within(reloj).getByText('0 kcal')).toBeInTheDocument();
+    expect(within(reloj).getByText('Tiempo entrenado')).toBeInTheDocument();
+    // La fila compacta se retira: un solo reloj en pantalla.
+    expect(screen.getAllByLabelText('Tiempo transcurrido')).toHaveLength(1);
+  });
+
+  it('también sustituye a la foto cuando el ejercicio sí tiene imagen', async () => {
+    const conFoto = makeExercise({
+      id: 'w1',
+      exercise_name: 'Gato-Camello',
+      exercise_type: 'warmup',
+      sets: 1,
+      duration_seconds: 30,
+      order_num: 1,
+      exercises: { image_url: 'https://cdn.fitnessai.app/ejercicios/gato-camello.jpg', video_url: null, description: null },
+    });
+    renderModal({ session_exercises: [conFoto] });
+    await verVistaPrevia();
+    expect(await screen.findByRole('img', { name: /demostración de gato-camello/i })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /empezar ejercicio/i }));
+
+    await screen.findByRole('timer');
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  });
+
+  it('al terminar el ejercicio vuelve la imagen del siguiente, en vista previa', async () => {
+    renderModal({ session_exercises: bloqueDeFuerza() });
+    await comenzar();
+    expect(screen.getByRole('timer')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /terminar ejercicio/i }));
+
+    expect(await screen.findByText('sin imagen')).toBeInTheDocument();
+    expect(screen.queryByRole('timer')).not.toBeInTheDocument();
+    expect(screen.getAllByLabelText('Tiempo transcurrido')).toHaveLength(1);
+  });
+
+  it('avisa cuando el reloj está en pausa, entre el descanso y la serie siguiente', async () => {
+    renderModal({
+      session_exercises: [makeExercise({ id: 'st', exercise_name: 'Peso Muerto Rumano', sets: 2, rest_seconds: 30 })],
+    });
+    await comenzar();
+    const reloj = screen.getByRole('timer');
+    expect(within(reloj).getByText('Tiempo entrenado')).toBeInTheDocument();
+
+    // Durante el descanso el reloj sigue contando: no está en pausa.
+    await userEvent.click(screen.getByRole('button', { name: /serie 1 lista/i }));
+    expect(within(reloj).getByText('Tiempo entrenado')).toBeInTheDocument();
+
+    // Saltarlo lo detiene hasta que se empieza la serie siguiente.
+    await userEvent.click(screen.getByRole('button', { name: /saltar descanso/i }));
+    expect(await within(reloj).findByText('En pausa')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /empezar serie 2/i }));
+    expect(await within(reloj).findByText('Tiempo entrenado')).toBeInTheDocument();
+    expect(within(reloj).queryByText('En pausa')).not.toBeInTheDocument();
+  });
+
+  it('sin wearable el reloj en grande no muestra pulsaciones', async () => {
+    render(<WorkoutModal session={makeSession()} visible hasWearable={false} onClose={vi.fn()} onMinimize={vi.fn()} />);
+    await comenzar();
+    expect(within(screen.getByRole('timer')).queryByText(/bpm/)).not.toBeInTheDocument();
+  });
+
+  it('con wearable añade las pulsaciones junto a las calorías', async () => {
+    render(<WorkoutModal session={makeSession()} visible hasWearable onClose={vi.fn()} onMinimize={vi.fn()} />);
+    await comenzar();
+    expect(within(screen.getByRole('timer')).getByText(/bpm/)).toBeInTheDocument();
+  });
+});
+
+describe('WorkoutModal — el tiempo entrenado sobrevive a recargas y cierres', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const llamadasProgreso = () => api.patch.mock.calls.filter(([url]) => String(url).endsWith('/progress'));
+
+  it('arranca mostrando lo que el servidor guardó y ofrece continuar, no comenzar', () => {
+    renderModal({ status: 'in_progress', elapsed_seconds: 754 });
+
+    expect(screen.getByText('12:34')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /continuar entrenamiento/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /comenzar entrenamiento/i })).not.toBeInTheDocument();
+  });
+
+  it('se queda con el mayor entre el servidor y este navegador', () => {
+    const session = makeSession({ status: 'in_progress', elapsed_seconds: 754 });
+    localStorage.setItem(`workout_elapsed_${session.id}`, '800000');
+    render(<WorkoutModal session={session} visible onClose={vi.fn()} onMinimize={vi.fn()} />);
+
+    expect(screen.getByText('13:20')).toBeInTheDocument();
+  });
+
+  it('una sesión sin empezar arranca en cero y con "Comenzar"', () => {
+    renderModal();
+    expect(screen.getByText('00:00')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /comenzar entrenamiento/i })).toBeInTheDocument();
+  });
+
+  it('continúa contando desde el tiempo recuperado', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(
+      <WorkoutModal
+        session={makeSession({
+          status: 'in_progress',
+          elapsed_seconds: 600,
+          session_exercises: [makeExercise({ id: 'st', sets: 2, rest_seconds: 0 })],
+        })}
+        visible
+        onClose={vi.fn()}
+        onMinimize={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /continuar entrenamiento/i }));
+    await user.click(await screen.findByRole('button', { name: /empezar ejercicio/i }));
+    await act(async () => { vi.advanceTimersByTime(5000); });
+
+    expect(screen.getByLabelText('Tiempo transcurrido').textContent).toMatch(/^10:0[4-6]$/);
+  });
+
+  it('sincroniza con el servidor al pausar', async () => {
+    const { session } = renderModal({ session_exercises: [makeExercise({ id: 'st', sets: 2, rest_seconds: 0 })] });
+    await comenzar();
+    expect(llamadasProgreso()).toHaveLength(0);
+
+    await userEvent.click(screen.getByRole('button', { name: /serie 1 lista/i }));
+    expect(llamadasProgreso()).toEqual([
+      [`/workouts/sessions/${session.id}/progress`, { elapsed_seconds: expect.any(Number) }],
+    ]);
+  });
+
+  it('mientras corre sincroniza cada medio minuto, no cada segundo', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderModal({ session_exercises: [makeExercise({ id: 'st', sets: 3, rest_seconds: 0 })] });
+
+    await user.click(screen.getByRole('button', { name: /comenzar entrenamiento/i }));
+    await user.click(await screen.findByRole('button', { name: /empezar ejercicio/i }));
+    await act(async () => { vi.advanceTimersByTime(65_000); });
+
+    const n = llamadasProgreso().length;
+    expect(n).toBeGreaterThanOrEqual(1);
+    expect(n).toBeLessThanOrEqual(3);
+  });
+
+  it('al pasar a segundo plano guarda el tramo en curso (navegador y servidor)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { session } = renderModal({ session_exercises: [makeExercise({ id: 'st', sets: 2, rest_seconds: 0 })] });
+
+    await user.click(screen.getByRole('button', { name: /comenzar entrenamiento/i }));
+    await user.click(await screen.findByRole('button', { name: /empezar ejercicio/i }));
+    await act(async () => { vi.advanceTimersByTime(5000); });
+
+    // jsdom no cambia de pestaña: se simula el estado que ve la app al hacer alt+tab.
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    try {
+      act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    } finally {
+      delete document.visibilityState;
+    }
+
+    expect(Number(localStorage.getItem(`workout_elapsed_${session.id}`))).toBeGreaterThanOrEqual(4000);
+    expect(llamadasProgreso()).toHaveLength(1);
+  });
+
+  it('finalizar la sesión sí borra el tiempo guardado', async () => {
+    const { session } = renderModal({
+      session_exercises: [makeExercise({ id: 'w1', exercise_type: 'warmup', sets: 1, duration_seconds: 30, order_num: 1 })],
+    });
+    await comenzar();
+    await userEvent.click(screen.getByRole('button', { name: /terminar ejercicio/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /finalizar sesión/i }));
+
+    expect(localStorage.getItem(`workout_elapsed_${session.id}`)).toBeNull();
   });
 });
