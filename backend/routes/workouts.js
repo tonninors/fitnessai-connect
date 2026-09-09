@@ -14,6 +14,7 @@ import {
   rankCandidates,
 } from '../lib/alternatives.js';
 import { buildCatalogIndex, normalizeExerciseName } from '../lib/plan.js';
+import { SIMILARITY_FIELDS } from '../lib/similarity.js';
 
 const router = Router();
 
@@ -22,9 +23,13 @@ const ALTERNATIVES_MAX_TOKENS = 400;
 const MAX_ELAPSED_SECONDS = 24 * 60 * 60;
 
 /** Columnas del catálogo que necesitan las alternativas y la media enlazada. */
-const CATALOG_COLUMNS = 'id, name, muscle_groups, equipment, description, image_url, video_url, exercise_type, '
-  + 'movement_pattern, movement_angle, muscle_map, joint_actions, rom, muscle_length_bias, '
-  + 'resistance_profile, body_support, stability_demand, laterality, is_compound, kinetic_chain, fatigue';
+// Columnas base + todas las que consume el motor de similitud. Se derivan de
+// `SIMILARITY_FIELDS` a propósito: cuando se añadió `exercise_family` al motor,
+// esta lista se quedó sin ella y la dimensión de mayor peso no se activaba.
+const CATALOG_COLUMNS = [
+  'id', 'name', 'muscle_groups', 'description', 'image_url', 'video_url', 'exercise_type',
+  ...SIMILARITY_FIELDS,
+].filter((column, i, all) => all.indexOf(column) === i).join(', ');
 
 /** Columnas de `session_exercises` que devuelve la sustitución. */
 const SUBSTITUTE_COLUMNS =
