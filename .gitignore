@@ -38,3 +38,6 @@ frontend/vite.config.js.timestamp-*.mjs
 coverage/
 backend/coverage/
 frontend/coverage/
+
+# Herramientas locales (p. ej. cloudflared para túneles de prueba)
+.tools/
