@@ -1,5 +1,29 @@
 import { describe, it, expect } from 'vitest';
-import { computeStreak, levelForStreak, levelNameForLevel, LEVEL_NAMES } from '../../lib/streak.js';
+import { computeStreak, streakFromDates, levelForStreak, levelNameForLevel, LEVEL_NAMES } from '../../lib/streak.js';
+
+describe('streakFromDates', () => {
+  it('cuenta los días consecutivos que terminan hoy', () => {
+    expect(streakFromDates(['2026-09-07', '2026-09-08', '2026-09-09'], '2026-09-09')).toBe(3);
+  });
+
+  it('una racha que termina ayer sigue viva', () => {
+    expect(streakFromDates(['2026-09-07', '2026-09-08'], '2026-09-09')).toBe(2);
+  });
+
+  it('se rompe con un hueco y no cuenta lo anterior a él', () => {
+    expect(streakFromDates(['2026-09-05', '2026-09-08', '2026-09-09'], '2026-09-09')).toBe(2);
+    expect(streakFromDates(['2026-09-05'], '2026-09-09')).toBe(0);
+  });
+
+  it('dos sesiones el mismo día cuentan un solo día', () => {
+    expect(streakFromDates(['2026-09-09', '2026-09-09'], '2026-09-09')).toBe(1);
+  });
+
+  it('sin sesiones es 0 y tolera valores nulos', () => {
+    expect(streakFromDates([], '2026-09-09')).toBe(0);
+    expect(streakFromDates([null, undefined], '2026-09-09')).toBe(0);
+  });
+});
 
 describe('levelForStreak', () => {
   it('sube un nivel cada 10 días', () => {

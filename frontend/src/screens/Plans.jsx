@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, Play, Check, Calendar, Trophy, CheckCircle2, X, Clock, Zap, Dumbbell, Timer } from 'lucide-react';
+import { Sparkles, Play, Check, Calendar, Trophy, CheckCircle2, X, Clock, Zap, Dumbbell, Timer, RotateCcw } from 'lucide-react';
 import { api } from '../api/client.js';
 import { useApiData } from '../hooks/useApiData.js';
 import ErrorState from '../components/ErrorState.jsx';
 import { todayISO, formatDate, weekdayShort } from '../lib/dates.js';
-import { groupByBlock, sortByBlock, isTimed, totalSets, formatDuration } from '../lib/workout.js';
+import { groupByBlock, sortByBlock, isTimed, totalSets, formatDuration, elapsedStorageKey } from '../lib/workout.js';
 
 /** Parámetros por defecto cuando el perfil aún no tiene onboarding guardado. */
 const PLAN_DEFAULTS = {
@@ -54,6 +54,8 @@ export default function Plans({ onStartWorkout, runningSession, onResumeWorkout,
   const [genError, setGenError] = useState(null);
   const [finishing, setFinishing] = useState(false);
   const [selectedSession, setSelectedSession] = useState(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const { data, loading, error, reload, setData } = useApiData(async () => {
     const [plan, upcoming] = await Promise.all([
@@ -106,6 +108,26 @@ export default function Plans({ onStartWorkout, runningSession, onResumeWorkout,
       setGenError(e.message || 'Error al generar el plan');
     } finally {
       setGenerating(false);
+    }
+  }
+
+  /**
+   * Reinicia desde cero la semana actual. El backend deshace el avance y
+   * reprograma los días desde hoy; aquí se borra además el cronómetro que
+   * pudiera quedar en este navegador, o el modal lo recuperaría al abrir.
+   */
+  async function resetWeek() {
+    setResetting(true);
+    setGenError(null);
+    try {
+      await api.post('/workouts/plan/reset-week', {});
+      for (const s of plan?.workout_sessions ?? []) localStorage.removeItem(elapsedStorageKey(s.id));
+      setConfirmReset(false);
+      await refresh();
+    } catch (e) {
+      setGenError(e.message || 'No se pudo reiniciar la semana');
+    } finally {
+      setResetting(false);
     }
   }
 
@@ -256,14 +278,39 @@ export default function Plans({ onStartWorkout, runningSession, onResumeWorkout,
 
       {plan && (
         <div className="px-5 pb-1">
-          <button
-            type="button"
-            className="w-full text-xs text-txt3 py-2 bg-transparent border-none cursor-pointer hover:text-accent transition-colors"
-            onClick={generatePlan}
-            disabled={generating}
-          >
-            {generating ? 'Generando nuevo plan...' : '↻ Regenerar plan con IA'}
-          </button>
+          {/* Reiniciar la semana es destructivo: pide confirmación en el sitio,
+              sin diálogo del navegador. Con un entrenamiento en curso no se
+              ofrece: el modal quedaría apuntando a una sesión ya reiniciada. */}
+          {!confirmReset ? (
+            <button
+              type="button"
+              className="w-full text-xs text-txt3 py-2 bg-transparent border-none cursor-pointer hover:text-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-txt3"
+              onClick={() => setConfirmReset(true)}
+              disabled={!!runningSession || resetting}
+            >
+              Reiniciar esta semana desde cero
+            </button>
+          ) : (
+            <div className="rounded-2xl border border-border bg-surface2 p-3.5 mt-1 mb-2" role="group" aria-label="Confirmar reinicio de la semana">
+              <p className="text-xs text-txt2 leading-relaxed mb-3">
+                Se borra el avance de la semana {plan.current_week}: ejercicios hechos, series y tiempo entrenado.
+                Los días se reprograman desde hoy.
+              </p>
+              <div className="flex gap-2">
+                <button type="button" className="btn btn-surface" style={{ padding: '9px' }} onClick={() => setConfirmReset(false)} disabled={resetting}>
+                  Cancelar
+                </button>
+                <button type="button" className="btn btn-primary" style={{ padding: '9px' }} onClick={resetWeek} disabled={resetting}>
+                  <RotateCcw size={14} aria-hidden="true" /> {resetting ? 'Reiniciando...' : 'Sí, reiniciar'}
+                </button>
+              </div>
+            </div>
+          )}
+          {runningSession && (
+            <p className="text-[11px] text-txt3 text-center pb-2">
+              Para reiniciar la semana, termina o cierra el entrenamiento en curso.
+            </p>
+          )}
           {genError && <p className="text-[12px] text-red-400 text-center pb-2" role="alert">{genError}</p>}
         </div>
       )}
@@ -320,7 +367,9 @@ function PlansSkeleton() {
 
 /**
  * Fila de la lista. `isCurrent` es el ejercicio que el modal tiene en curso:
- * se distingue con un contorno en acento, sin rótulos.
+ * se distingue como una fila en relieve (fondo más claro y barra de acento a
+ * la izquierda, el mismo recurso de la tarjeta de hoy), sin rótulos ni
+ * contornos. El `pl` compensa los 3 px de la barra para que el texto no salte.
  */
 function ExerciseRow({ exercise, index, type, isDone, isCurrent }) {
   const timed = isTimed(exercise);
@@ -330,7 +379,7 @@ function ExerciseRow({ exercise, index, type, isDone, isCurrent }) {
       data-testid={`exercise-${exercise.id}`}
       aria-current={isCurrent ? 'step' : undefined}
       className={`flex items-center gap-3.5 px-4 py-3.5 border-b border-border last:border-b-0 transition-all
-        ${isDone ? 'opacity-40' : ''} ${isCurrent ? 'bg-accent/5 outline-1 -outline-offset-1 outline-accent' : ''}`}
+        ${isDone ? 'opacity-40' : ''} ${isCurrent ? 'bg-surface2 border-l-[3px] border-l-accent pl-[13px]' : ''}`}
     >
       <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold shrink-0 transition-colors
         ${isDone ? 'bg-accent text-white'

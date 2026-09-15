@@ -21,6 +21,7 @@ function renderHome(props = {}) {
       runningSession={null}
       onResumeWorkout={vi.fn()}
       liveCompleted={new Set()}
+      liveElapsed={0}
       {...props}
     />,
   );
@@ -185,6 +186,39 @@ describe('Home — entrenamiento en curso', () => {
     renderHome({ runningSession: session, liveCompleted: new Set(['w']) });
 
     expect(await screen.findByRole('img', { name: /1 de 2 ejercicios/i })).toBeInTheDocument();
+  });
+
+  it('muestra el tiempo entrenado en la tarjeta en vivo', async () => {
+    const session = sesionEnCurso();
+    api.get.mockResolvedValue(makeHomeData({ today_session: session }));
+    renderHome({ runningSession: session, liveCompleted: new Set(['w']), liveElapsed: 82 });
+
+    expect(await screen.findByLabelText('Tiempo entrenado')).toHaveTextContent('01:22');
+  });
+
+  it('con una sesión empezada pero cerrada muestra el tiempo guardado y ofrece continuar', async () => {
+    // Tras recargar (o desde otro dispositivo) no hay nada "en vivo", pero la
+    // sesión sigue en curso en el servidor con su tiempo entrenado.
+    const session = makeSession({ status: 'in_progress', elapsed_seconds: 754 });
+    const onStartWorkout = vi.fn();
+    api.get.mockResolvedValue(makeHomeData({ today_session: session }));
+    renderHome({ onStartWorkout });
+
+    expect(await screen.findByLabelText('Tiempo entrenado')).toHaveTextContent('12:34');
+    const boton = screen.getByRole('button', { name: /continuar entrenamiento/i });
+    expect(screen.queryByRole('button', { name: /iniciar entrenamiento/i })).not.toBeInTheDocument();
+
+    // Abre el modal (que reanuda desde ese tiempo); no hay nada que "volver a mostrar".
+    await userEvent.click(boton);
+    expect(onStartWorkout).toHaveBeenCalledWith(expect.objectContaining({ id: session.id }));
+  });
+
+  it('sin entrenamiento en curso no muestra tiempo', async () => {
+    api.get.mockResolvedValue(makeHomeData({ today_session: sesionEnCurso() }));
+    renderHome();
+
+    await screen.findByRole('button', { name: /iniciar entrenamiento/i });
+    expect(screen.queryByLabelText('Tiempo entrenado')).not.toBeInTheDocument();
   });
 
   it('no cuenta el progreso si lo que corre es otra sesión', async () => {

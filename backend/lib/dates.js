@@ -54,6 +54,12 @@ export function addDays(dateStr, days) {
   return date.toISOString().slice(0, 10);
 }
 
+/** Días enteros de `fromStr` a `toStr` (negativo si `toStr` es anterior). */
+export function daysBetween(fromStr, toStr) {
+  const ms = parseISODate(toStr).getTime() - parseISODate(fromStr).getTime();
+  return Math.round(ms / 86_400_000);
+}
+
 /** Día de la semana (0=domingo … 6=sábado) de una fecha `YYYY-MM-DD`. */
 export function dayOfWeek(dateStr) {
   return parseISODate(dateStr).getUTCDay();
@@ -65,12 +71,6 @@ export function getWeekRange(dateStr) {
   const diffToMonday = dow === 0 ? -6 : 1 - dow;
   const monday = addDays(dateStr, diffToMonday);
   return { monday, sunday: addDays(monday, 6) };
-}
-
-/** Los 7 días (lunes→domingo) de la semana que contiene a `dateStr`. */
-export function weekDays(dateStr) {
-  const { monday } = getWeekRange(dateStr);
-  return Array.from({ length: 7 }, (_, i) => addDays(monday, i));
 }
 
 /** Saludo según la hora local del usuario/servidor. */

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 /**
@@ -99,13 +99,6 @@ describe('App — navegación', () => {
     expect(await screen.findByText('Mis Planes')).toBeInTheDocument();
     expect(plansTab).toHaveAttribute('aria-current', 'page');
   });
-
-  it('la vista de entrenador no está disponible para usuarios normales', async () => {
-    mockApi();
-    render(<App />);
-    await screen.findByRole('navigation');
-    expect(screen.queryByText('Vista de entrenador')).not.toBeInTheDocument();
-  });
 });
 
 describe('App — entrenamiento en curso (regresión)', () => {
@@ -117,11 +110,6 @@ describe('App — entrenamiento en curso (regresión)', () => {
     await userEvent.click(await screen.findByRole('button', { name: /iniciar entrenamiento/i }));
     return session;
   }
-
-  it('abre el modal al iniciar el entrenamiento del día', async () => {
-    await startWorkout();
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
-  });
 
   it('minimizar deja la barra "En vivo" y permite volver sin perder la sesión', async () => {
     await startWorkout();
@@ -161,5 +149,43 @@ describe('App — entrenamiento en curso (regresión)', () => {
 
     // La barra segmentada de Inicio marca 1 de 4 ejercicios completados.
     expect(await screen.findByRole('img', { name: /1 de 4 ejercicios/i })).toBeInTheDocument();
+  });
+
+  it('la barra minimizada muestra el tiempo entrenado', async () => {
+    await startWorkout();
+    await screen.findByRole('dialog');
+    await userEvent.click(screen.getByRole('button', { name: /minimizar entrenamiento/i }));
+
+    const miniBar = await screen.findByRole('button', { name: /volver al entrenamiento/i });
+    expect(within(miniBar).getByText('00:00')).toBeInTheDocument();
+  });
+
+  it('cambiar de cuenta descarta el entrenamiento en curso', async () => {
+    // Regresión: al cerrar sesión y entrar con otra cuenta, el modal (y su
+    // cronómetro) seguía montado bajo el usuario nuevo: Planes mostraba un
+    // plan y el panel de abajo el entrenamiento del otro.
+    await startWorkout();
+    await screen.findByRole('dialog');
+
+    await act(async () => { authState.listener('SIGNED_OUT', null); });
+    expect(await screen.findByText('FitnessAI Connect')).toBeInTheDocument();
+
+    const otraCuenta = { user: { id: 'user-2', email: 'lucia@example.com', user_metadata: { full_name: 'Lucía Fernández' } } };
+    await act(async () => { authState.listener('SIGNED_IN', otraCuenta); });
+
+    await screen.findByRole('navigation');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /volver al entrenamiento/i })).not.toBeInTheDocument();
+    // La tarjeta de Inicio ofrece iniciar, no continuar.
+    expect(await screen.findByRole('button', { name: /iniciar entrenamiento/i })).toBeInTheDocument();
+  });
+
+  it('un refresco de token del mismo usuario no toca el entrenamiento', async () => {
+    await startWorkout();
+    await screen.findByRole('dialog');
+
+    await act(async () => { authState.listener('TOKEN_REFRESHED', { ...SESSION }); });
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 });

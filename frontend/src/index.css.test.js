@@ -30,6 +30,16 @@ describe('index.css — reglas de layout móvil', () => {
     expect(movil[0]).toMatch(/input:is\([^)]*\[type="password"\][^)]*\)[\s\S]*?font-size:\s*16px/);
   });
 
+  it('la hoja del entrenamiento hace scroll por dentro en vez de cortarse', () => {
+    // `.modal-sheet` limita la altura al 90 % y la pantalla del teléfono es
+    // `overflow: hidden`: sin un cuerpo con scroll propio, lo que sobresalía
+    // (el panel de alternativas, por ejemplo) quedaba cortado sin forma de
+    // llegar a él. La hoja se queda fija para que el overlay de descanso la
+    // cubra entera; el scroll vive en `.modal-body`.
+    expect(css).toMatch(/\.modal-sheet\s*\{[^}]*overflow:\s*hidden/);
+    expect(css).toMatch(/\.modal-body\s*\{[^}]*overflow-y:\s*auto/);
+  });
+
   it('las pantallas a altura completa usan dvh además de vh', () => {
     // En iOS `100vh` mide la ventana con la barra del navegador retraída y
     // deja un scroll muerto; `dvh` sigue a la barra. El `vh` se conserva como

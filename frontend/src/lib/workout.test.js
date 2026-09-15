@@ -5,11 +5,9 @@ import {
   totalSets,
   sortByBlock,
   groupByBlock,
-  nextPendingExercise,
   completionPercent,
   formatTimer,
   formatDuration,
-  describeExercise,
   estimateCalories,
   kcalPerMinute,
   isExerciseDone,
@@ -111,27 +109,6 @@ describe('groupByBlock', () => {
   });
 });
 
-describe('nextPendingExercise', () => {
-  const list = [
-    ex({ id: 'w', exercise_type: 'warmup', order_num: 1 }),
-    ex({ id: 's1', exercise_type: 'strength', order_num: 2 }),
-    ex({ id: 's2', exercise_type: 'strength', order_num: 3 }),
-  ];
-
-  it('devuelve el primer pendiente respetando el orden de bloques', () => {
-    expect(nextPendingExercise(list, new Set()).id).toBe('w');
-    expect(nextPendingExercise(list, new Set(['w'])).id).toBe('s1');
-  });
-
-  it('devuelve null cuando todo está completado', () => {
-    expect(nextPendingExercise(list, new Set(['w', 's1', 's2']))).toBeNull();
-  });
-
-  it('funciona sin argumentos', () => {
-    expect(nextPendingExercise()).toBeNull();
-  });
-});
-
 describe('completionPercent', () => {
   it('calcula el porcentaje', () => {
     expect(completionPercent(10, 5)).toBe(50);
@@ -161,18 +138,11 @@ describe('formatTimer', () => {
   });
 });
 
-describe('formatDuration / describeExercise', () => {
+describe('formatDuration', () => {
   it('usa segundos por debajo del minuto y minutos por encima', () => {
     expect(formatDuration(45)).toBe('45s');
     expect(formatDuration(1200)).toBe('20 min');
     expect(formatDuration(0)).toBe('');
-  });
-
-  it('describe ejercicios de fuerza y por tiempo', () => {
-    expect(describeExercise(ex({ sets: 4, reps: 6, weight_kg: 60 }))).toBe('4 × 6 reps · 60kg');
-    expect(describeExercise(ex({ sets: 3, reps: 10 }))).toBe('3 × 10 reps');
-    expect(describeExercise(ex({ duration_seconds: 45 }))).toBe('45s');
-    expect(describeExercise(null)).toBe('');
   });
 });
 

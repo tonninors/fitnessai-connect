@@ -127,6 +127,7 @@ Weeks 2–12 are still pending — see `COMPONENTES-PENDIENTES.md`.
 | GET | `/api/home` | ✓ | today_session or next_session, rings, HRV, insight, week strip |
 | GET | `/api/workouts/plan` | ✓ | Active plan with sessions + exercises |
 | GET | `/api/workouts/upcoming` | ✓ | Next 5 pending sessions |
+| POST | `/api/workouts/plan/reset-week` | ✓ | Current week from scratch: sessions → `scheduled`, exercises unchecked, sets deleted, `elapsed_seconds` 0, dates re-anchored to today (same gaps), streak recomputed via `streakFromDates()` |
 | POST | `/api/workouts/sessions/:id/start` | ✓ | Mark `in_progress` |
 | PATCH | `/api/workouts/sessions/:id/progress` | ✓ | Sync `elapsed_seconds` (monotonic, never decreases); 204 |
 | PATCH | `/api/workouts/sessions/:id/complete` | ✓ | Close session + recalc streak |

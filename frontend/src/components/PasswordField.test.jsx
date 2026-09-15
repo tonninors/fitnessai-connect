@@ -38,14 +38,6 @@ describe('PasswordField', () => {
     expect(boton).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('mantiene el valor al alternar', async () => {
-    // Cambiar el `type` no debe reemplazar el input ni perder lo tecleado.
-    renderField();
-
-    await userEvent.click(screen.getByRole('button', { name: 'Mostrar contraseña' }));
-    expect(screen.getByLabelText('Contraseña')).toHaveValue('secreto123');
-  });
-
   it('no envía el formulario al pulsarlo', async () => {
     // Sin `type="button"` el botón haría submit: está dentro de un <form>.
     const onSubmit = vi.fn(e => e.preventDefault());

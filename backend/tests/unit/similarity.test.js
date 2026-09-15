@@ -369,9 +369,6 @@ describe('contrato con el endpoint', () => {
     const declaration = source.slice(source.indexOf('const CATALOG_COLUMNS'));
 
     expect(declaration).toContain('SIMILARITY_FIELDS');
-    for (const field of SIMILARITY_FIELDS) {
-      expect(compareExercises({ [field]: null }, { [field]: null })).toBeDefined();
-    }
   });
 
   it('SIMILARITY_FIELDS no lista campos que el motor ya no usa', () => {

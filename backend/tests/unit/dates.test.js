@@ -5,9 +5,9 @@ import {
   isISODate,
   parseISODate,
   addDays,
+  daysBetween,
   dayOfWeek,
   getWeekRange,
-  weekDays,
   greetingFor,
   currentHour,
 } from '../../lib/dates.js';
@@ -62,7 +62,20 @@ describe('addDays', () => {
   });
 });
 
-describe('dayOfWeek / getWeekRange / weekDays', () => {
+describe('daysBetween', () => {
+  it('cuenta días enteros entre dos fechas, con signo', () => {
+    expect(daysBetween('2026-09-04', '2026-09-09')).toBe(5);
+    expect(daysBetween('2026-09-09', '2026-09-04')).toBe(-5);
+    expect(daysBetween('2026-09-09', '2026-09-09')).toBe(0);
+  });
+
+  it('cruza meses y años', () => {
+    expect(daysBetween('2026-08-31', '2026-09-01')).toBe(1);
+    expect(daysBetween('2025-12-31', '2027-01-01')).toBe(366);
+  });
+});
+
+describe('dayOfWeek / getWeekRange', () => {
   it('devuelve el día de la semana correcto', () => {
     expect(dayOfWeek('2026-08-17')).toBe(1); // lunes
     expect(dayOfWeek('2026-08-23')).toBe(0); // domingo
@@ -75,13 +88,6 @@ describe('dayOfWeek / getWeekRange / weekDays', () => {
 
   it('el domingo pertenece a la semana que empieza el lunes anterior', () => {
     expect(getWeekRange('2026-08-23')).toEqual({ monday: '2026-08-17', sunday: '2026-08-23' });
-  });
-
-  it('devuelve exactamente 7 días consecutivos', () => {
-    const days = weekDays('2026-08-20');
-    expect(days).toHaveLength(7);
-    expect(days[0]).toBe('2026-08-17');
-    expect(days[6]).toBe('2026-08-23');
   });
 });
 

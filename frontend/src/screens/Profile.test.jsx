@@ -80,6 +80,16 @@ describe('buildWearableList / planLabel', () => {
 });
 
 describe('Profile — pantalla', () => {
+  it('muestra el correo de la cuenta activa bajo el nombre', async () => {
+    // Con más de una cuenta (p. ej. gmail y outlook) el avance parecía
+    // "compartido": la pantalla no decía con cuál se estaba entrenando.
+    api.get.mockResolvedValue(makeProfile({ full_name: 'Ana Torres', email: 'ana.torres@gmail.com' }));
+    render(<Profile onNavigate={vi.fn()} isTrainer={false} />);
+
+    expect(await screen.findByText('Ana Torres')).toBeInTheDocument();
+    expect(screen.getByText('ana.torres@gmail.com')).toBeInTheDocument();
+  });
+
   it('muestra los datos del usuario', async () => {
     api.get.mockResolvedValue(makeProfile());
     render(<Profile onNavigate={vi.fn()} isTrainer={false} />);

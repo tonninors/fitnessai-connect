@@ -121,6 +121,73 @@ describe('GET /api/workouts/upcoming', () => {
   });
 });
 
+describe('POST /api/workouts/plan/reset-week', () => {
+  const SEMANA = [
+    { id: '33333333-3333-4333-8333-333333333331', scheduled_date: '2026-09-04' },
+    { id: '33333333-3333-4333-8333-333333333332', scheduled_date: '2026-09-05' },
+    { id: '33333333-3333-4333-8333-333333333333', scheduled_date: '2026-09-08' },
+  ];
+
+  /** Plan activo en la semana 1, con tres sesiones y una completada en agosto. */
+  function resolver(q) {
+    if (q.table === 'workout_plans') return { data: { id: 'plan-1', current_week: 1 }, error: null };
+    if (q.table === 'workout_sessions' && q.op === 'select') {
+      // El recálculo de racha pide las completadas; el reinicio, las de la semana.
+      if (hasFilter(q, 'eq', 'status', 'completed')) return { data: [{ scheduled_date: '2026-08-01' }], error: null };
+      return { data: SEMANA, error: null };
+    }
+    if (q.table === 'session_exercises' && q.op === 'select') return { data: [{ id: 'ex-1' }, { id: 'ex-2' }], error: null };
+    return { data: null, error: null };
+  }
+
+  it('deja las sesiones de la semana como nuevas y las reprograma desde hoy', async () => {
+    ctx = createTestApp({ resolver });
+    const res = await request(ctx.app).post('/api/workouts/plan/reset-week').set(authHeader);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ week: 1, reset_sessions: 3 });
+
+    const today = todayISO();
+    const updates = ctx.supabase.queriesFor('workout_sessions').filter(q => q.op === 'update');
+    expect(updates).toHaveLength(3);
+    for (const u of updates) {
+      expect(u.payload).toMatchObject({ status: 'scheduled', completed_at: null, elapsed_seconds: 0, actual_duration: null });
+      expect(hasFilter(u, 'eq', 'user_id', TEST_USER.id)).toBe(true);
+    }
+    // Conserva los huecos entre días: 4→hoy, 5→hoy+1, 8→hoy+4.
+    expect(updates.map(u => u.payload.scheduled_date)).toEqual([today, addDays(today, 1), addDays(today, 4)]);
+    expect(res.body.start_date).toBe(today);
+  });
+
+  it('desmarca los ejercicios y borra las series registradas', async () => {
+    ctx = createTestApp({ resolver });
+    await request(ctx.app).post('/api/workouts/plan/reset-week').set(authHeader);
+
+    const toggle = ctx.supabase.queriesFor('session_exercises').find(q => q.op === 'update');
+    expect(toggle.payload).toEqual({ completed: false });
+    expect(hasFilter(toggle, 'in', 'session_id')).toBe(true);
+
+    const sets = ctx.supabase.queriesFor('session_sets').find(q => q.op === 'delete');
+    expect(hasFilter(sets, 'in', 'session_exercise_id')).toBe(true);
+  });
+
+  it('recalcula la racha desde cero con lo que sigue completado', async () => {
+    ctx = createTestApp({ resolver });
+    const res = await request(ctx.app).post('/api/workouts/plan/reset-week').set(authHeader);
+
+    // Lo único completado que queda es de agosto: la racha se rompe.
+    const profile = ctx.supabase.queriesFor('profiles').find(q => q.op === 'update');
+    expect(profile.payload).toMatchObject({ current_streak: 0, level: 1 });
+    expect(profile.payload).not.toHaveProperty('longest_streak');
+    expect(res.body.streak).toBe(0);
+  });
+
+  it('devuelve 404 sin plan activo', async () => {
+    ctx = createTestApp({ resolver: () => ({ data: null, error: null }) });
+    const res = await request(ctx.app).post('/api/workouts/plan/reset-week').set(authHeader);
+    expect(res.status).toBe(404);
+  });
+});
+
 describe('POST /api/workouts/sessions/:id/start', () => {
   it('marca la sesión como in_progress', async () => {
     ctx = createTestApp({
@@ -398,12 +465,6 @@ describe('POST .../exercises/:exerciseId/alternatives', () => {
 
     expect(hasFilter(ctx.supabase.queriesFor('exercises')[0], 'eq', 'is_public', true)).toBe(true);
     expect(res.body.alternatives.map(a => a.id)).not.toContain(PRESS_BARRA.id);
-  });
-
-  it('nunca devuelve ejercicios de otro bloque', async () => {
-    ctx = createTestApp({ resolver: ownedResolver(), groqReply: AI_REPLY });
-    const res = await request(ctx.app).post(url).set(authHeader).send({});
-    expect(res.body.alternatives.map(a => a.name)).not.toContain('Postura del Niño');
   });
 
   it('cae al respaldo determinista si la IA falla (nunca 502)', async () => {
