@@ -1,10 +1,10 @@
 import { motion } from 'framer-motion';
-import { Play, Check, Sparkles, ChevronRight, Calendar } from 'lucide-react';
+import { Play, Check, Sparkles, ChevronRight, Calendar, Clock } from 'lucide-react';
 import { api } from '../api/client.js';
 import { useApiData } from '../hooks/useApiData.js';
 import ErrorState from '../components/ErrorState.jsx';
 import { todayISO, weekDays, formatDate, WEEKDAY_INITIALS } from '../lib/dates.js';
-import { blockProgress, sessionFocusTitle } from '../lib/workout.js';
+import { blockProgress, sessionFocusTitle, formatTimer } from '../lib/workout.js';
 
 export default function Home({
   onStartWorkout,
@@ -12,6 +12,7 @@ export default function Home({
   runningSession,
   onResumeWorkout,
   liveCompleted,
+  liveElapsed,
 }) {
   const { data, loading, error, reload } = useApiData(() => api.get('/home'));
 
@@ -62,6 +63,7 @@ export default function Home({
             session={today_session}
             isRunning={runningSession?.id === today_session.id}
             liveCompleted={liveCompleted}
+            liveElapsed={liveElapsed}
             onStart={() => onStartWorkout(today_session)}
             onResume={onResumeWorkout}
           />
@@ -149,11 +151,17 @@ function HomeSkeleton() {
   );
 }
 
-function TodayWorkoutCard({ session, isRunning, liveCompleted, onStart, onResume }) {
+function TodayWorkoutCard({ session, isRunning, liveCompleted, liveElapsed, onStart, onResume }) {
   const exercises = session.session_exercises ?? [];
   // El progreso en vivo sólo cuenta si el entrenamiento que corre es éste.
   const segments = blockProgress(exercises, isRunning ? liveCompleted : null);
   const isCompleted = session.status === 'completed';
+  // Sesión empezada en otro momento (o en otro dispositivo): el tiempo ya
+  // entrenado viene del servidor y el botón ofrece continuar, no iniciar. Con
+  // el modal abierto el tiempo es el que corre en vivo.
+  const inProgress = isRunning || session.status === 'in_progress';
+  const elapsed = isRunning ? (liveElapsed ?? 0) : (Number(session.elapsed_seconds) || 0);
+  const showElapsed = isRunning || elapsed > 0;
 
   const meta = [
     session.estimated_duration ? `${session.estimated_duration} min` : null,
@@ -165,19 +173,31 @@ function TodayWorkoutCard({ session, isRunning, liveCompleted, onStart, onResume
       initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
       className="card border-l-[3px] border-l-accent"
     >
-      <p className="flex items-center gap-1.5 text-[10px] text-accent font-semibold uppercase tracking-wider mb-3">
-        {isRunning ? (
-          <>
-            <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" aria-hidden="true" />
-            En vivo
-          </>
-        ) : (
-          <>
-            <Sparkles size={12} aria-hidden="true" />
-            Entrenamiento de hoy
-          </>
+      <div className="flex items-center mb-3">
+        <p className="flex items-center gap-1.5 text-[10px] text-accent font-semibold uppercase tracking-wider">
+          {isRunning ? (
+            <>
+              <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" aria-hidden="true" />
+              En vivo
+            </>
+          ) : (
+            <>
+              <Sparkles size={12} aria-hidden="true" />
+              Entrenamiento de hoy
+            </>
+          )}
+        </p>
+        {/* Tiempo entrenado hasta ahora: el mismo total que muestra el modal. */}
+        {showElapsed && (
+          <span
+            className="ml-auto flex items-center gap-1 font-metric text-lg font-bold text-blue leading-none tabular-nums"
+            aria-label="Tiempo entrenado"
+          >
+            <Clock size={13} aria-hidden="true" />
+            {formatTimer(elapsed)}
+          </span>
         )}
-      </p>
+      </div>
 
       <h2 className="text-2xl font-bold tracking-tight mb-1">{sessionFocusTitle(session)}</h2>
       {meta && <p className="text-xs text-txt3 mb-5">{meta}</p>}
@@ -195,7 +215,7 @@ function TodayWorkoutCard({ session, isRunning, liveCompleted, onStart, onResume
         ) : (
           <>
             <Play size={16} fill="white" aria-hidden="true" />
-            {isRunning ? 'Continuar entrenamiento' : 'Iniciar entrenamiento'}
+            {inProgress ? 'Continuar entrenamiento' : 'Iniciar entrenamiento'}
           </>
         )}
       </button>

@@ -14,6 +14,7 @@ import {
   formatTimer,
   formatDuration,
   estimateCalories,
+  elapsedStorageKey,
 } from '../lib/workout.js';
 
 /**
@@ -58,9 +59,10 @@ export default function WorkoutModal({
   onMinimize,
   onExerciseDone,
   onActiveExChange,
+  onElapsedChange,
 }) {
   const rawExercises = session?.session_exercises;
-  const storageKey = `workout_elapsed_${session?.id}`;
+  const storageKey = elapsedStorageKey(session?.id);
 
   // Tiempo ya entrenado en esta sesión (lo que guardó el servidor o este
   // navegador). El modal arranca mostrándolo, no en 00:00, y el reloj sigue
@@ -82,6 +84,9 @@ export default function WorkoutModal({
   // ¿Se está ejecutando la serie actual? Es lo que mueve el cronómetro: entre
   // el final de un descanso y el "Empezar serie N" siguiente no se entrena.
   const [serieRunning, setSerieRunning] = useState(false);
+  // Segundos de la serie en curso (o del ejercicio por tiempo). Es el número
+  // grande de la tarjeta: arranca en "Empezar" y vuelve a cero al cerrarla.
+  const [serieSeconds, setSerieSeconds] = useState(0);
   const [replacements, setReplacements] = useState({}); // id de la fila → ejercicio sustituto
   const [altPanel, setAltPanel] = useState(null);       // null | { status, options, error }
   const [completedEx, setCompletedEx] = useState(
@@ -117,6 +122,7 @@ export default function WorkoutModal({
   const accumulatedRef = useRef(resumedMs); // ms ya consolidados
   const runningSinceRef = useRef(null);     // inicio del tramo en curso, o null en pausa
   const lastSyncMsRef = useRef(resumedMs);  // último valor enviado al servidor
+  const serieStartRef = useRef(null);       // inicio de la serie en curso, o null
   const intervalRef = useRef(null);
   const restRef = useRef(null);
 
@@ -137,6 +143,11 @@ export default function WorkoutModal({
     setSeconds(elapsed);
     setCalories(estimateCalories(elapsed, session?.rpe_target));
   }, [session?.rpe_target]);
+
+  // Inicio y la barra minimizada muestran el mismo total que el modal.
+  useEffect(() => {
+    onElapsedChange?.(seconds);
+  }, [seconds, onElapsedChange]);
 
   /**
    * Guarda el tiempo entrenado en el servidor, sobre la propia sesión. Si la
@@ -160,6 +171,9 @@ export default function WorkoutModal({
     showElapsed(accumulatedRef.current);
 
     intervalRef.current = setInterval(() => {
+      if (serieStartRef.current != null) {
+        setSerieSeconds(Math.floor((Date.now() - serieStartRef.current) / 1000));
+      }
       if (runningSinceRef.current == null) return; // en pausa: no hay nada que sumar
       const ms = elapsedMs();
       showElapsed(ms);
@@ -225,6 +239,18 @@ export default function WorkoutModal({
     setRestState(null);
   }
 
+  /** Arranca desde cero el contador de la serie (o del ejercicio por tiempo). */
+  function startSerieClock() {
+    serieStartRef.current = Date.now();
+    setSerieSeconds(0);
+  }
+
+  /** Para y borra el contador de la serie: su tiempo desaparece al cerrarla. */
+  function stopSerieClock() {
+    serieStartRef.current = null;
+    setSerieSeconds(0);
+  }
+
   /**
    * Propone el ejercicio que toca, en vista previa. Es la única vía de
    * activación: el usuario nunca elige cuál, la app decide según el orden del
@@ -235,6 +261,7 @@ export default function WorkoutModal({
     setActiveSetNum(1);
     setExStarted(false);
     setSerieRunning(false);
+    stopSerieClock();
     if (!ex) {
       setActiveExId(null);
       onActiveExChange?.(null);
@@ -249,11 +276,13 @@ export default function WorkoutModal({
     setAltPanel(null);
     setExStarted(true);
     setSerieRunning(true);
+    startSerieClock();
   }
 
   /** Reanuda el cronómetro para la serie siguiente, tras el descanso. */
   function beginSerie() {
     setSerieRunning(true);
+    startSerieClock();
   }
 
   /** Arranca el cronómetro y activa el primer ejercicio pendiente. */
@@ -277,6 +306,7 @@ export default function WorkoutModal({
     const sets = totalSets(ex);
     // Se cierra la serie: el cronómetro sólo sigue si arranca un descanso.
     setSerieRunning(false);
+    stopSerieClock();
 
     if (isTimed(ex) || activeSetNum >= sets) {
       const done = new Set(completedEx).add(ex.id);
@@ -409,163 +439,162 @@ export default function WorkoutModal({
       >
         <div className="modal-handle" />
 
-        {/* Header */}
-        <div className="flex items-center gap-2 mb-4">
-          <div className="live-badge">
-            <div className="live-dot" />
-            {hasWearable ? 'En vivo · Apple Watch' : 'En vivo'}
+        <div className="modal-body">
+          {/* Header */}
+          <div className="flex items-center gap-2 mb-4">
+            <div className="live-badge">
+              <div className="live-dot" />
+              {hasWearable ? 'En vivo · Apple Watch' : 'En vivo'}
+            </div>
+            <div className="flex-1" />
+            <button
+              type="button"
+              className="w-8 h-8 rounded-lg bg-surface2 flex items-center justify-center border-none cursor-pointer"
+              onClick={() => onMinimize?.()}
+              aria-label="Minimizar entrenamiento"
+            >
+              <Minus size={14} className="text-txt3" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="w-8 h-8 rounded-lg bg-surface2 flex items-center justify-center border-none cursor-pointer"
+              onClick={handleClose}
+              aria-label="Cerrar entrenamiento"
+            >
+              <X size={14} className="text-txt3" aria-hidden="true" />
+            </button>
           </div>
-          <div className="flex-1" />
-          <button
-            type="button"
-            className="w-8 h-8 rounded-lg bg-surface2 flex items-center justify-center border-none cursor-pointer"
-            onClick={() => onMinimize?.()}
-            aria-label="Minimizar entrenamiento"
-          >
-            <Minus size={14} className="text-txt3" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className="w-8 h-8 rounded-lg bg-surface2 flex items-center justify-center border-none cursor-pointer"
-            onClick={handleClose}
-            aria-label="Cerrar entrenamiento"
-          >
-            <X size={14} className="text-txt3" aria-hidden="true" />
-          </button>
-        </div>
 
-        <h2 className="text-xl font-bold mb-0.5">{sessionTitle}</h2>
-        <p className="text-xs text-txt3 mb-4">
-          {completedEx.size} de {exercises.length} ejercicios completados
-        </p>
+          <h2 className="text-xl font-bold mb-0.5">{sessionTitle}</h2>
+          <p className="text-xs text-txt3 mb-4">
+            {completedEx.size} de {exercises.length} ejercicios completados
+          </p>
 
-        {/* Métricas. En grande antes de empezar; compactas en la vista previa
-            del ejercicio; y con el ejercicio en marcha viven dentro de la
-            tarjeta, en el sitio de la imagen (`LiveClock`). Sin animación de
-            salida: el reloj no puede estar dos veces en pantalla. */}
-        {!activeExId && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-            className="metrics-row mb-4"
-          >
-            <Metric icon={Heart} color="text-red-400" label="FC bpm" value={hasWearable ? (hr ?? '—') : '—'} />
-            <Metric icon={Flame} color="text-accent" label="Kcal" value={Math.round(calories)} />
-            <Metric icon={Clock} color="text-blue" label="Tiempo" value={formatTimer(seconds)} />
-          </motion.div>
-        )}
-        {activeExId && !exStarted && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-            className="flex items-center gap-4 mb-3 px-0.5"
-          >
-            <span className="flex items-center gap-1.5 text-[11px] text-txt3">
-              <Clock size={11} className="text-blue" aria-hidden="true" />
-              <span aria-label="Tiempo transcurrido">{formatTimer(seconds)}</span>
-            </span>
-            <span className="flex items-center gap-1.5 text-[11px] text-txt3">
-              <Flame size={11} className="text-accent" aria-hidden="true" />{Math.round(calories)} kcal
-            </span>
-            {hasWearable && (
+          {/* Métricas del total. En grande antes de empezar; compactas en cuanto
+              hay un ejercicio activo, también con la serie en marcha: el número
+              grande de la tarjeta es entonces el de la serie (`SetClock`) y el
+              total queda arriba como contexto. Sin animación de salida, para que
+              el reloj total no esté dos veces en pantalla. */}
+          {!activeExId && (
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+              className="metrics-row mb-4"
+            >
+              <Metric icon={Heart} color="text-red-400" label="FC bpm" value={hasWearable ? (hr ?? '—') : '—'} />
+              <Metric icon={Flame} color="text-accent" label="Kcal" value={Math.round(calories)} />
+              <Metric icon={Clock} color="text-blue" label="Tiempo" value={formatTimer(seconds)} />
+            </motion.div>
+          )}
+          {activeExId && (
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+              className="flex items-center gap-4 mb-3 px-0.5"
+            >
               <span className="flex items-center gap-1.5 text-[11px] text-txt3">
-                <Heart size={11} className="text-red-400" aria-hidden="true" />{hr ?? '—'} bpm
+                <Clock size={11} className="text-blue" aria-hidden="true" />
+                <span aria-label="Tiempo transcurrido">{formatTimer(seconds)}</span>
               </span>
-            )}
-          </motion.div>
-        )}
-
-        {exercises.length === 0 && (
-          <p className="text-xs text-txt3 text-center py-6">Esta sesión no tiene ejercicios cargados.</p>
-        )}
-
-        {/* Antes de empezar: un único botón. La app decide qué toca. */}
-        {!timerStarted && exercises.length > 0 && !allDone && (
-          <button type="button" className="btn btn-primary mb-3" onClick={handleStart}>
-            <Play size={16} aria-hidden="true" /> {resuming ? 'Continuar entrenamiento' : 'Comenzar entrenamiento'}
-          </button>
-        )}
-
-        {timerStarted && (
-          <>
-            {/* Cabecera del bloque actual */}
-            {currentBlock && (
-              <div className={`flex items-center gap-2 rounded-xl px-3.5 py-2.5 mb-3 border border-border border-l-[3px] ${currentBlock.borderClass} ${currentBlock.bgClass}`}>
-                <span className={`text-xs font-bold uppercase tracking-wider ${currentBlock.colorClass}`}>
-                  {currentBlock.label}
+              <span className="flex items-center gap-1.5 text-[11px] text-txt3">
+                <Flame size={11} className="text-accent" aria-hidden="true" />{Math.round(calories)} kcal
+              </span>
+              {hasWearable && (
+                <span className="flex items-center gap-1.5 text-[11px] text-txt3">
+                  <Heart size={11} className="text-red-400" aria-hidden="true" />{hr ?? '—'} bpm
                 </span>
-                <span className="text-[10px] text-txt3 ml-auto">{blockIdx + 1} / {blocks.length}</span>
-              </div>
-            )}
-
-            {/* Ejercicio actual: uno solo, sin lista ni selección */}
-            <AnimatePresence mode="wait">
-              {activeEx && (
-                <ActiveExerciseCard
-                  key={`${activeEx.id}-${activeEx.exercise_name}`}
-                  exercise={activeEx}
-                  block={currentBlock}
-                  setNum={activeSetNum}
-                  started={exStarted}
-                  serieRunning={serieRunning}
-                  clockRunning={clockRunning}
-                  seconds={seconds}
-                  calories={calories}
-                  hr={hr}
-                  hasWearable={hasWearable}
-                  onBegin={beginExercise}
-                  onBeginSerie={beginSerie}
-                  onCompleteSerie={() => completeSerie(activeEx)}
-                />
               )}
-            </AnimatePresence>
+            </motion.div>
+          )}
 
-            {/* Sustituir solo tiene sentido antes de empezar: si ya hiciste una
-                serie, es que sí puedes hacerlo. */}
-            {activeEx && !exStarted && (
-              <>
-                <button
-                  type="button"
-                  className="btn btn-surface mb-3"
-                  style={{ padding: '9px' }}
-                  onClick={() => (altPanel ? setAltPanel(null) : openAlternatives(activeEx))}
-                  aria-expanded={altPanel !== null}
-                >
-                  <RefreshCw size={14} aria-hidden="true" /> No puedo hacer este ejercicio
+          {exercises.length === 0 && (
+            <p className="text-xs text-txt3 text-center py-6">Esta sesión no tiene ejercicios cargados.</p>
+          )}
+
+          {/* Antes de empezar: un único botón. La app decide qué toca. */}
+          {!timerStarted && exercises.length > 0 && !allDone && (
+            <button type="button" className="btn btn-primary mb-3" onClick={handleStart}>
+              <Play size={16} aria-hidden="true" /> {resuming ? 'Continuar entrenamiento' : 'Comenzar entrenamiento'}
+            </button>
+          )}
+
+          {timerStarted && (
+            <>
+              {/* Cabecera del bloque actual */}
+              {currentBlock && (
+                <div className={`flex items-center gap-2 rounded-xl px-3.5 py-2.5 mb-3 border border-border border-l-[3px] ${currentBlock.borderClass} ${currentBlock.bgClass}`}>
+                  <span className={`text-xs font-bold uppercase tracking-wider ${currentBlock.colorClass}`}>
+                    {currentBlock.label}
+                  </span>
+                  <span className="text-[10px] text-txt3 ml-auto">{blockIdx + 1} / {blocks.length}</span>
+                </div>
+              )}
+
+              {/* Ejercicio actual: uno solo, sin lista ni selección */}
+              <AnimatePresence mode="wait">
+                {activeEx && (
+                  <ActiveExerciseCard
+                    key={`${activeEx.id}-${activeEx.exercise_name}`}
+                    exercise={activeEx}
+                    block={currentBlock}
+                    setNum={activeSetNum}
+                    started={exStarted}
+                    serieRunning={serieRunning}
+                    serieSeconds={serieSeconds}
+                    onBegin={beginExercise}
+                    onBeginSerie={beginSerie}
+                    onCompleteSerie={() => completeSerie(activeEx)}
+                  />
+                )}
+              </AnimatePresence>
+
+              {/* Sustituir solo tiene sentido antes de empezar: si ya hiciste una
+                  serie, es que sí puedes hacerlo. */}
+              {activeEx && !exStarted && (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-surface mb-3"
+                    style={{ padding: '9px' }}
+                    onClick={() => (altPanel ? setAltPanel(null) : openAlternatives(activeEx))}
+                    aria-expanded={altPanel !== null}
+                  >
+                    <RefreshCw size={14} aria-hidden="true" /> No puedo hacer este ejercicio
+                  </button>
+
+                  <AnimatePresence>
+                    {altPanel && (
+                      <AlternativesPanel
+                        key="alternatives"
+                        panel={altPanel}
+                        onChoose={alt => chooseAlternative(activeEx, alt)}
+                        onRetry={() => openAlternatives(activeEx)}
+                        onDismiss={() => setAltPanel(null)}
+                      />
+                    )}
+                  </AnimatePresence>
+                </>
+              )}
+            </>
+          )}
+
+          {/* Avanzar de bloque / finalizar */}
+          <AnimatePresence>
+            {timerStarted && blockAllDone && !isLastBlock && (
+              <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+                <button type="button" className="btn btn-primary" onClick={handleNextBlock}>
+                  <ChevronRight size={16} aria-hidden="true" />
+                  Siguiente fase: {blocks[blockIdx + 1]?.label}
                 </button>
-
-                <AnimatePresence>
-                  {altPanel && (
-                    <AlternativesPanel
-                      key="alternatives"
-                      panel={altPanel}
-                      onChoose={alt => chooseAlternative(activeEx, alt)}
-                      onRetry={() => openAlternatives(activeEx)}
-                      onDismiss={() => setAltPanel(null)}
-                    />
-                  )}
-                </AnimatePresence>
-              </>
+              </motion.div>
             )}
-          </>
-        )}
-
-        {/* Avanzar de bloque / finalizar */}
-        <AnimatePresence>
-          {timerStarted && blockAllDone && !isLastBlock && (
-            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-              <button type="button" className="btn btn-primary" onClick={handleNextBlock}>
-                <ChevronRight size={16} aria-hidden="true" />
-                Siguiente fase: {blocks[blockIdx + 1]?.label}
-              </button>
-            </motion.div>
-          )}
-          {allDone && (
-            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-              <button type="button" className="btn btn-primary" onClick={handleFinish}>
-                <Check size={16} aria-hidden="true" /> Finalizar sesión
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
+            {allDone && (
+              <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+                <button type="button" className="btn btn-primary" onClick={handleFinish}>
+                  <Check size={16} aria-hidden="true" /> Finalizar sesión
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
 
         {/* Descanso entre series */}
         <AnimatePresence>
@@ -586,18 +615,29 @@ function Metric({ icon: Icon, color, label, value }) {
   );
 }
 
+/** ¿El catálogo trae video o imagen para este ejercicio de la sesión? */
+function hasMedia(exercise) {
+  const media = exercise?.exercises;
+  return Boolean(media?.video_url || media?.image_url);
+}
+
 /**
  * Media de referencia del ejercicio. El join `exercises` puede venir vacío
  * (es lo normal hoy): en ese caso se cae al icono del bloque.
+ *
+ * Con media real el recuadro es 16:9 a todo el ancho: los clips son
+ * apaisados y con una altura fija se recortaban por arriba (la persona salía
+ * sin cabeza). Sin media queda el marcador compacto, que no merece ese hueco.
  */
 function ExerciseMedia({ exercise, block }) {
   const media = exercise?.exercises ?? null;
   const label = `Demostración de ${exercise?.exercise_name ?? 'el ejercicio'}`;
-  const wrapper = 'relative w-full h-28 flex items-center justify-center overflow-hidden';
+  const wrapper = 'relative w-full flex items-center justify-center overflow-hidden';
+  const mediaBox = `${wrapper} aspect-video`;
 
   if (media?.video_url) {
     return (
-      <div className={wrapper} style={{ background: '#111' }}>
+      <div className={mediaBox} style={{ background: '#111' }}>
         <video
           src={media.video_url}
           className="w-full h-full object-cover"
@@ -614,7 +654,7 @@ function ExerciseMedia({ exercise, block }) {
 
   if (media?.image_url) {
     return (
-      <div className={wrapper} style={{ background: '#111' }}>
+      <div className={mediaBox} style={{ background: '#111' }}>
         <img src={media.image_url} alt={label} className="w-full h-full object-cover" />
       </div>
     );
@@ -623,7 +663,7 @@ function ExerciseMedia({ exercise, block }) {
   const type = exerciseType(exercise);
   const ExIcon = type === 'strength' ? Dumbbell : type === 'cardio' ? Zap : Wind;
   return (
-    <div className={wrapper} style={{ background: 'linear-gradient(135deg,#1a1a1a 0%,#222 100%)' }}>
+    <div className={`${wrapper} h-28`} style={{ background: 'linear-gradient(135deg,#1a1a1a 0%,#222 100%)' }}>
       <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${block?.bgClass ?? ''}`}>
         <ExIcon size={28} className={block?.colorClass} aria-hidden="true" />
       </div>
@@ -635,43 +675,51 @@ function ExerciseMedia({ exercise, block }) {
 }
 
 /**
- * Cronómetro en grande. Ocupa el sitio de la imagen mientras el ejercicio
- * está en marcha: la referencia visual ya se vio en la vista previa y lo que
- * hace falta ahora es leer el tiempo y el gasto con el teléfono en el suelo.
- * En este estado es el único reloj en pantalla (la fila compacta se retira),
- * así que conserva el `aria-label` del tiempo transcurrido.
+ * Contador de la serie, en grande y en el sitio de la imagen mientras el
+ * ejercicio está en marcha: la referencia visual ya se vio en la vista previa
+ * y lo que hace falta con el teléfono en el suelo es este número. Depende del
+ * tipo de ejercicio: en los de tiempo es una cuenta atrás desde su duración;
+ * en fuerza, un cronómetro de la serie que vuelve a cero al cerrarla. El
+ * total de la sesión queda arriba, en la fila compacta.
+ *
+ * Ocupa el mismo alto que tenía la media (16:9 si había video o imagen) para
+ * que la tarjeta y el botón no salten al pulsar "Empezar ejercicio".
  */
-function LiveClock({ seconds, calories, hr, hasWearable, running }) {
+function SetClock({ exercise, running, serieSeconds }) {
+  const timed = isTimed(exercise);
+  const duration = Number(exercise?.duration_seconds) || 0;
+  const remaining = Math.max(duration - serieSeconds, 0);
+  const done = timed && running && remaining === 0;
+
+  let label = 'En pausa';
+  if (running) label = done ? 'Tiempo cumplido' : (timed ? 'Tiempo restante' : 'Tiempo de la serie');
+
+  let value = 0;
+  if (running) value = timed ? remaining : serieSeconds;
+
+  let color = 'text-txt2';
+  if (running) color = done ? 'text-green' : 'text-blue';
+
   return (
     <motion.div
       role="timer"
-      aria-label="Cronómetro del ejercicio"
+      aria-label={timed ? 'Cuenta atrás del ejercicio' : 'Cronómetro de la serie'}
       initial={{ opacity: 0, scale: 0.92 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ type: 'spring', damping: 22, stiffness: 260 }}
-      className="w-full h-36 flex flex-col items-center justify-center gap-2"
+      className={`w-full ${hasMedia(exercise) ? 'aspect-video' : 'h-36'} flex flex-col items-center justify-center gap-2`}
       style={{ background: 'linear-gradient(135deg,#1a1a1a 0%,#222 100%)' }}
     >
       <p className="flex items-center gap-1.5 text-[10px] text-txt3 uppercase tracking-widest">
-        <Clock size={11} className="text-blue" aria-hidden="true" />
-        {running ? 'Tiempo entrenado' : 'En pausa'}
+        <Clock size={11} className={done ? 'text-green' : 'text-blue'} aria-hidden="true" />
+        {label}
       </p>
       <span
-        className={`font-metric text-6xl font-bold leading-none ${running ? 'text-blue' : 'text-txt2'}`}
-        aria-label="Tiempo transcurrido"
+        className={`font-metric text-6xl font-bold leading-none ${color}`}
+        aria-label={timed ? 'Tiempo restante' : 'Tiempo de la serie'}
       >
-        {formatTimer(seconds)}
+        {formatTimer(value)}
       </span>
-      <div className="flex items-center gap-5 mt-1">
-        <span className="flex items-center gap-1.5 font-metric text-2xl font-bold text-accent leading-none">
-          <Flame size={15} aria-hidden="true" />{Math.round(calories)} kcal
-        </span>
-        {hasWearable && (
-          <span className="flex items-center gap-1.5 font-metric text-2xl font-bold text-red-400 leading-none">
-            <Heart size={15} aria-hidden="true" />{hr ?? '—'} bpm
-          </span>
-        )}
-      </div>
     </motion.div>
   );
 }
@@ -680,12 +728,11 @@ function LiveClock({ seconds, calories, hr, hasWearable, running }) {
  * Ejercicio que toca ahora. Tiene dos estados:
  * - `started` false: vista previa. Se ve qué viene (con su imagen) y se
  *   decide empezarlo o pedir un sustituto.
- * - `started` true: series en curso. La imagen deja su sitio al cronómetro
- *   en grande: la referencia ya se vio y ahora lo que importa es el tiempo.
+ * - `started` true: series en curso. La imagen deja su sitio al contador de
+ *   la serie: la referencia ya se vio y ahora lo que importa es ese tiempo.
  */
 function ActiveExerciseCard({
-  exercise, block, setNum, started, serieRunning,
-  clockRunning, seconds, calories, hr, hasWearable,
+  exercise, block, setNum, started, serieRunning, serieSeconds,
   onBegin, onBeginSerie, onCompleteSerie,
 }) {
   const timed = isTimed(exercise);
@@ -702,7 +749,7 @@ function ActiveExerciseCard({
       style={{ background: 'var(--color-surface2)' }}
     >
       {started
-        ? <LiveClock seconds={seconds} calories={calories} hr={hr} hasWearable={hasWearable} running={clockRunning} />
+        ? <SetClock exercise={exercise} running={serieRunning} serieSeconds={serieSeconds} />
         : <ExerciseMedia exercise={exercise} block={block} />}
 
       <div className="p-4">
@@ -788,8 +835,18 @@ function equipmentLabel(equipment) {
 function AlternativesPanel({ panel, onChoose, onRetry, onDismiss }) {
   const busy = panel.status === 'loading' || panel.status === 'applying';
 
+  // El panel aparece debajo del botón, casi siempre fuera de la parte visible
+  // de la hoja: se trae a la vista al abrirse y cuando llegan las opciones
+  // (crece), para que no haya que adivinar que ahora hay scroll. jsdom no
+  // implementa scrollIntoView, de ahí la llamada opcional.
+  const ref = useRef(null);
+  useEffect(() => {
+    ref.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+  }, [panel.status]);
+
   return (
     <motion.section
+      ref={ref}
       initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
       transition={{ duration: 0.18 }}
       className="rounded-2xl border border-border bg-surface2 p-3.5 mb-3"

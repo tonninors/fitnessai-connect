@@ -2,6 +2,8 @@
  * Cálculo de racha y nivel. Lógica pura: no toca base de datos.
  */
 
+import { addDays } from './dates.js';
+
 export const LEVEL_NAMES = ['Principiante', 'En forma', 'Atleta', 'Avanzado', 'Elite'];
 
 /** Un nivel cada 10 días de racha, empezando en 1. */
@@ -51,4 +53,22 @@ export function computeStreak({
     level,
     level_name: levelNameForLevel(level),
   };
+}
+
+/**
+ * Racha recalculada desde cero a partir de las fechas con sesión completada.
+ * Cuenta días consecutivos hacia atrás terminando hoy o, si hoy aún no se
+ * entrenó, ayer: una racha viva no se rompe hasta pasar un día entero sin
+ * entrenar. Se usa al deshacer progreso (reiniciar una semana), porque
+ * `computeStreak` sólo sabe sumar al completar una sesión.
+ */
+export function streakFromDates(dates = [], today) {
+  const days = new Set(dates.filter(d => typeof d === 'string' && d));
+  let cursor = days.has(today) ? today : addDays(today, -1);
+  let streak = 0;
+  while (days.has(cursor)) {
+    streak += 1;
+    cursor = addDays(cursor, -1);
+  }
+  return streak;
 }

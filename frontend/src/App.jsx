@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Home as HomeIcon, Dumbbell, TrendingUp, MessageCircle, User, ChevronUp } from 'lucide-react';
 import { supabase, api } from './api/client.js';
@@ -11,7 +11,7 @@ import Chat from './screens/Chat.jsx';
 import WorkoutModal from './components/WorkoutModal.jsx';
 import ResetPassword from './screens/ResetPassword.jsx';
 import { formatClock } from './lib/dates.js';
-import { sessionFocusTitle } from './lib/workout.js';
+import { sessionFocusTitle, formatTimer } from './lib/workout.js';
 
 // Recharts pesa ~400 kB y sólo lo usa Progreso; el panel de entrenador lo ve
 // una minoría de usuarios. Ambos se cargan bajo demanda.
@@ -59,11 +59,18 @@ export default function App() {
   const [modalVisible, setModalVisible] = useState(false);
   const [liveCompleted, setLiveCompleted] = useState(null); // Set<exerciseId> | null
   const [liveActiveEx, setLiveActiveEx] = useState(null);   // { id, name, setNum, totalSets } | null
+  const [liveElapsed, setLiveElapsed] = useState(0);        // segundos entrenados, para Inicio y la barra
 
   const [clock, setClock] = useState(() => formatClock());
 
+  // Usuario al que pertenece el estado en memoria (entrenamiento en curso
+  // incluido). Se compara por id, no por evento: un refresco de token es el
+  // mismo usuario y no debe tocar nada.
+  const lastUserIdRef = useRef(null);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
+      lastUserIdRef.current = data?.session?.user?.id ?? null;
       setSession(data?.session ?? null);
       setLoading(false);
     }).catch(() => setLoading(false));
@@ -71,6 +78,21 @@ export default function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);
       setAuthEvent(event);
+
+      // El entrenamiento en curso es de la cuenta que lo abrió. Al cerrar
+      // sesión o entrar con otra se descarta: si no, el modal (y su
+      // cronómetro) seguía en pantalla bajo el usuario nuevo, y sus escrituras
+      // iban a una sesión ajena, que el backend rechaza con 403.
+      const nextUserId = nextSession?.user?.id ?? null;
+      if (nextUserId !== lastUserIdRef.current) {
+        lastUserIdRef.current = nextUserId;
+        setActiveSession(null);
+        setModalVisible(false);
+        setLiveCompleted(null);
+        setLiveActiveEx(null);
+        setLiveElapsed(0);
+      }
+
       if (!nextSession) {
         setProfile(null);
         setIsTrainer(false);
@@ -115,6 +137,7 @@ export default function App() {
     setModalVisible(true);
     setLiveCompleted(new Set((workoutSession.session_exercises ?? []).filter(e => e.completed).map(e => e.id)));
     setLiveActiveEx(null);
+    setLiveElapsed(0);
   }, []);
 
   const closeWorkout = useCallback(() => {
@@ -122,6 +145,7 @@ export default function App() {
     setModalVisible(false);
     setLiveCompleted(null);
     setLiveActiveEx(null);
+    setLiveElapsed(0);
   }, []);
 
   if (loading || profileLoading) {
@@ -231,6 +255,7 @@ export default function App() {
                         onResumeWorkout={() => setModalVisible(true)}
                         liveCompleted={liveCompleted ?? new Set()}
                         liveActiveEx={liveActiveEx}
+                        liveElapsed={liveElapsed}
                       />
                       </Suspense>
                     </motion.div>
@@ -288,6 +313,9 @@ export default function App() {
                     <span className="flex-1 min-w-0 text-left">
                       <span className="block text-sm font-semibold truncate">{sessionFocusTitle(activeSession)}</span>
                     </span>
+                    <span className="font-metric text-base font-bold text-blue leading-none shrink-0 tabular-nums">
+                      {formatTimer(liveElapsed)}
+                    </span>
                     <ChevronUp size={16} className="text-accent shrink-0" aria-hidden="true" />
                   </span>
                 </button>
@@ -304,6 +332,7 @@ export default function App() {
                   onMinimize={() => setModalVisible(false)}
                   onExerciseDone={id => setLiveCompleted(prev => new Set(prev).add(id))}
                   onActiveExChange={setLiveActiveEx}
+                  onElapsedChange={setLiveElapsed}
                 />
               )}
             </>

@@ -730,8 +730,18 @@ describe('WorkoutModal — el cronómetro sólo corre entrenando', () => {
   });
 });
 
-describe('WorkoutModal — el cronómetro ocupa el sitio de la imagen', () => {
-  it('en vista previa se ve la imagen; al empezar, el reloj en grande', async () => {
+describe('WorkoutModal — el contador de la serie ocupa el sitio de la imagen', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function conRelojFalso() {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  }
+  const correr = (ms) => act(async () => { vi.advanceTimersByTime(ms); });
+
+  it('en vista previa se ve la imagen; al empezar, el contador en grande y el total arriba', async () => {
     renderModal();
     await verVistaPrevia();
 
@@ -740,13 +750,55 @@ describe('WorkoutModal — el cronómetro ocupa el sitio de la imagen', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /empezar ejercicio/i }));
 
-    const reloj = await screen.findByRole('timer', { name: /cronómetro del ejercicio/i });
+    // El primer ejercicio es de tiempo (45 s): cuenta atrás desde su duración.
+    const contador = await screen.findByRole('timer', { name: /cuenta atrás del ejercicio/i });
     expect(screen.queryByText('sin imagen')).not.toBeInTheDocument();
-    expect(within(reloj).getByLabelText('Tiempo transcurrido')).toHaveTextContent('00:00');
-    expect(within(reloj).getByText('0 kcal')).toBeInTheDocument();
-    expect(within(reloj).getByText('Tiempo entrenado')).toBeInTheDocument();
-    // La fila compacta se retira: un solo reloj en pantalla.
-    expect(screen.getAllByLabelText('Tiempo transcurrido')).toHaveLength(1);
+    expect(within(contador).getByLabelText('Tiempo restante')).toHaveTextContent('00:45');
+    expect(within(contador).getByText('Tiempo restante')).toBeInTheDocument();
+
+    // El total de la sesión sigue arriba, fuera del recuadro y una sola vez.
+    const total = screen.getAllByLabelText('Tiempo transcurrido');
+    expect(total).toHaveLength(1);
+    expect(contador).not.toContainElement(total[0]);
+    expect(screen.getByText('0 kcal')).toBeInTheDocument();
+  });
+
+  it('un ejercicio por tiempo cuenta hacia atrás y avisa al cumplirlo, sin terminarse solo', async () => {
+    const user = conRelojFalso();
+    renderModal({
+      session_exercises: [makeExercise({ id: 'w1', exercise_type: 'warmup', sets: 1, duration_seconds: 30, order_num: 1 })],
+    });
+    await user.click(screen.getByRole('button', { name: /comenzar entrenamiento/i }));
+    await user.click(await screen.findByRole('button', { name: /empezar ejercicio/i }));
+
+    await correr(5000);
+    expect(screen.getByLabelText('Tiempo restante').textContent).toMatch(/^00:2[4-6]$/);
+
+    await correr(30_000);
+    expect(screen.getByLabelText('Tiempo restante')).toHaveTextContent('00:00');
+    expect(screen.getByText('Tiempo cumplido')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /terminar ejercicio/i })).toBeInTheDocument();
+  });
+
+  it('una serie de fuerza cuenta hacia arriba y vuelve a cero al cerrarla; el total se conserva', async () => {
+    const user = conRelojFalso();
+    renderModal({ session_exercises: [makeExercise({ id: 'st', sets: 2, rest_seconds: 0 })] });
+    await user.click(screen.getByRole('button', { name: /comenzar entrenamiento/i }));
+    await user.click(await screen.findByRole('button', { name: /empezar ejercicio/i }));
+
+    const contador = await screen.findByRole('timer', { name: /cronómetro de la serie/i });
+    await correr(7000);
+    expect(within(contador).getByLabelText('Tiempo de la serie').textContent).toMatch(/^00:0[6-8]$/);
+
+    await user.click(screen.getByRole('button', { name: /serie 1 lista/i }));
+    expect(within(contador).getByLabelText('Tiempo de la serie')).toHaveTextContent('00:00');
+    expect(within(contador).getByText('En pausa')).toBeInTheDocument();
+    expect(screen.getByLabelText('Tiempo transcurrido').textContent).toMatch(/^00:0[6-8]$/);
+
+    // La serie siguiente arranca desde cero.
+    await user.click(screen.getByRole('button', { name: /empezar serie 2/i }));
+    await correr(3000);
+    expect(within(contador).getByLabelText('Tiempo de la serie').textContent).toMatch(/^00:0[2-4]$/);
   });
 
   it('también sustituye a la foto cuando el ejercicio sí tiene imagen', async () => {
@@ -769,6 +821,42 @@ describe('WorkoutModal — el cronómetro ocupa el sitio de la imagen', () => {
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
 
+  it('con video el recuadro es 16:9 y el contador conserva ese alto al empezar', async () => {
+    const conVideo = makeExercise({
+      id: 'w1',
+      exercise_name: 'Balanceo de Pierna Anterior-Posterior',
+      exercise_type: 'warmup',
+      sets: 1,
+      duration_seconds: 45,
+      order_num: 1,
+      exercises: { image_url: null, video_url: 'https://cdn.fitnessai.app/videos/balanceo-de-pierna.mp4', description: null },
+    });
+    renderModal({ session_exercises: [conVideo] });
+    await verVistaPrevia();
+
+    // Los clips son apaisados: con el alto fijo de antes se veían sin cabeza.
+    const video = await screen.findByRole('img', { name: /demostración de balanceo de pierna/i });
+    expect(video.tagName).toBe('VIDEO');
+    expect(video.parentElement).toHaveClass('aspect-video');
+    expect(video.parentElement).not.toHaveClass('h-28');
+
+    await userEvent.click(screen.getByRole('button', { name: /empezar ejercicio/i }));
+    expect(await screen.findByRole('timer')).toHaveClass('aspect-video');
+  });
+
+  it('sin media el contador mantiene su alto compacto', async () => {
+    renderModal({
+      session_exercises: [makeExercise({ id: 'w1', exercise_type: 'warmup', sets: 1, duration_seconds: 30, order_num: 1 })],
+    });
+    await verVistaPrevia();
+    expect(await screen.findByText('sin imagen')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /empezar ejercicio/i }));
+    const contador = await screen.findByRole('timer');
+    expect(contador).toHaveClass('h-36');
+    expect(contador).not.toHaveClass('aspect-video');
+  });
+
   it('al terminar el ejercicio vuelve la imagen del siguiente, en vista previa', async () => {
     renderModal({ session_exercises: bloqueDeFuerza() });
     await comenzar();
@@ -781,37 +869,57 @@ describe('WorkoutModal — el cronómetro ocupa el sitio de la imagen', () => {
     expect(screen.getAllByLabelText('Tiempo transcurrido')).toHaveLength(1);
   });
 
-  it('avisa cuando el reloj está en pausa, entre el descanso y la serie siguiente', async () => {
+  it('con descanso, el contador queda en pausa a cero hasta la serie siguiente', async () => {
     renderModal({
       session_exercises: [makeExercise({ id: 'st', exercise_name: 'Peso Muerto Rumano', sets: 2, rest_seconds: 30 })],
     });
     await comenzar();
-    const reloj = screen.getByRole('timer');
-    expect(within(reloj).getByText('Tiempo entrenado')).toBeInTheDocument();
+    const contador = screen.getByRole('timer');
+    expect(within(contador).getByText('Tiempo de la serie')).toBeInTheDocument();
 
-    // Durante el descanso el reloj sigue contando: no está en pausa.
+    // La serie terminó: su tiempo desaparece aunque el descanso siga corriendo.
     await userEvent.click(screen.getByRole('button', { name: /serie 1 lista/i }));
-    expect(within(reloj).getByText('Tiempo entrenado')).toBeInTheDocument();
+    expect(within(contador).getByText('En pausa')).toBeInTheDocument();
+    expect(within(contador).getByLabelText('Tiempo de la serie')).toHaveTextContent('00:00');
 
-    // Saltarlo lo detiene hasta que se empieza la serie siguiente.
     await userEvent.click(screen.getByRole('button', { name: /saltar descanso/i }));
-    expect(await within(reloj).findByText('En pausa')).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole('button', { name: /empezar serie 2/i }));
-    expect(await within(reloj).findByText('Tiempo entrenado')).toBeInTheDocument();
-    expect(within(reloj).queryByText('En pausa')).not.toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: /empezar serie 2/i }));
+    expect(await within(contador).findByText('Tiempo de la serie')).toBeInTheDocument();
+    expect(within(contador).queryByText('En pausa')).not.toBeInTheDocument();
   });
 
-  it('sin wearable el reloj en grande no muestra pulsaciones', async () => {
+  it('sin wearable no muestra pulsaciones con la serie en marcha', async () => {
     render(<WorkoutModal session={makeSession()} visible hasWearable={false} onClose={vi.fn()} onMinimize={vi.fn()} />);
     await comenzar();
-    expect(within(screen.getByRole('timer')).queryByText(/bpm/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/bpm/)).not.toBeInTheDocument();
   });
 
-  it('con wearable añade las pulsaciones junto a las calorías', async () => {
+  it('con wearable las pulsaciones acompañan al total, arriba, no al contador de la serie', async () => {
     render(<WorkoutModal session={makeSession()} visible hasWearable onClose={vi.fn()} onMinimize={vi.fn()} />);
     await comenzar();
-    expect(within(screen.getByRole('timer')).getByText(/bpm/)).toBeInTheDocument();
+    const bpm = screen.getByText(/bpm/);
+    expect(screen.getByRole('timer')).not.toContainElement(bpm);
+  });
+});
+
+describe('WorkoutModal — la hoja hace scroll por dentro', () => {
+  it('el contenido va en un cuerpo con scroll propio y el descanso cubre la hoja entera', async () => {
+    // Regresión: la hoja no tenía overflow y lo que pasaba del 90 % de alto
+    // (el panel de alternativas) quedaba cortado sin poder llegar a él.
+    renderModal({ session_exercises: [makeExercise({ id: 'st', sets: 2, rest_seconds: 30 })] });
+    const dialog = screen.getByRole('dialog');
+    const body = dialog.querySelector('.modal-body');
+    expect(body).not.toBeNull();
+    expect(body).toContainElement(screen.getByText(/de 1 ejercicios completados/));
+
+    await comenzar();
+    await userEvent.click(screen.getByRole('button', { name: /serie 1 lista/i }));
+
+    // El overlay del descanso es hermano del cuerpo, no hijo: así cubre la
+    // hoja entera sin depender de dónde esté el scroll.
+    const descanso = screen.getByText('Tiempo de descanso');
+    expect(dialog).toContainElement(descanso);
+    expect(body).not.toContainElement(descanso);
   });
 });
 

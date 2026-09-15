@@ -56,11 +56,6 @@ export function groupByBlock(exercises = []) {
     .filter(block => block.exercises.length > 0);
 }
 
-/** Primer ejercicio pendiente respetando el orden de bloques. */
-export function nextPendingExercise(exercises = [], doneIds = new Set()) {
-  return sortByBlock(exercises).find(ex => !doneIds.has(ex.id)) ?? null;
-}
-
 /** Progreso 0-100 de la sesión. */
 export function completionPercent(total, done) {
   if (!Number.isFinite(total) || total <= 0) return 0;
@@ -143,6 +138,11 @@ export function sessionFocusTitle(session) {
 }
 
 /** `mm:ss` (o `hh:mm:ss` si pasa de una hora). */
+/** Clave de localStorage con el tiempo entrenado (ms) de una sesión. */
+export function elapsedStorageKey(sessionId) {
+  return `workout_elapsed_${sessionId}`;
+}
+
 export function formatTimer(seconds) {
   const safe = Math.max(0, Math.floor(Number(seconds) || 0));
   const h = Math.floor(safe / 3600);
@@ -157,16 +157,6 @@ export function formatDuration(seconds) {
   const safe = Number(seconds);
   if (!Number.isFinite(safe) || safe <= 0) return '';
   return safe >= 60 ? `${Math.round(safe / 60)} min` : `${safe}s`;
-}
-
-/** Resumen corto del ejercicio: "4 × 6 reps · 60kg" o "45s". */
-export function describeExercise(exercise) {
-  if (!exercise) return '';
-  if (isTimed(exercise)) return formatDuration(exercise.duration_seconds);
-
-  const reps = exercise.reps ?? '?';
-  const weight = Number(exercise.weight_kg) > 0 ? ` · ${exercise.weight_kg}kg` : '';
-  return `${totalSets(exercise)} × ${reps} reps${weight}`;
 }
 
 // ── Calorías ────────────────────────────────────────────────────────────────

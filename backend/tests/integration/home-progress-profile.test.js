@@ -311,9 +311,10 @@ describe('/api/profile', () => {
     expect(update.payload).toMatchObject({ connected: false, access_token: null, refresh_token: null });
   });
 
-  it('rechaza desconectar una plataforma inválida', async () => {
+  it('rechaza desconectar una plataforma desconocida sin tocar la base de datos', async () => {
     ctx = createTestApp({ resolver: () => ({ data: null, error: null }) });
-    const res = await request(ctx.app).delete('/api/profile/wearables/../../etc').set(authHeader);
-    expect([400, 404]).toContain(res.status);
+    const res = await request(ctx.app).delete('/api/profile/wearables/strava').set(authHeader);
+    expect(res.status).toBe(400);
+    expect(ctx.supabase.queriesFor('wearable_connections')).toHaveLength(0);
   });
 });

@@ -145,6 +145,17 @@ body {
   border-radius: 20px 20px 0 0; padding: 20px 24px;
   transform: translateY(100%); transition: transform 0.35s cubic-bezier(.32,.72,0,1);
   max-height: 90%;
+  /* La hoja es una caja fija: el scroll vive en `.modal-body`. Sin esto, lo que
+     pasaba del 90 % (p. ej. el panel de alternativas) quedaba cortado por el
+     `overflow: hidden` de la pantalla, sin forma de verlo. Y al no desplazarse
+     la hoja, el overlay de descanso (absoluto) la cubre entera siempre. */
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.modal-body {
+  flex: 1 1 auto; min-height: 0;
+  overflow-y: auto; overflow-x: hidden;
+  overscroll-behavior: contain; /* que el scroll no se "escape" a la pantalla de detrás */
+  padding-bottom: 4px;
 }
 .modal-overlay.open .modal-sheet { transform: translateY(0); }
 .modal-handle {

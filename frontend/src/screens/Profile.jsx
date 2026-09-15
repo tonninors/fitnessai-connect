@@ -100,6 +100,9 @@ export default function Profile({ onNavigate, isTrainer }) {
             </div>
           </div>
           <h2 className="text-xl font-bold mb-1">{profile.full_name}</h2>
+          {/* Correo de la cuenta activa: con más de una cuenta es la única
+              forma de saber con cuál se está entrenando. */}
+          {profile.email && <p className="text-xs text-txt3 mb-3">{profile.email}</p>}
           <span className="inline-block bg-accent/15 text-accent text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-md mb-5">
             {planLabel(profile.subscription_plan)}
           </span>

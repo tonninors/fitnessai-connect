@@ -139,7 +139,7 @@ describe('Plans — sesión activa', () => {
     expect(ids).toEqual(['exercise-w', 'exercise-s1', 'exercise-s2']);
   });
 
-  it('resalta con un contorno el ejercicio en curso, sin rótulo de "Siguiente"', async () => {
+  it('resalta en relieve el ejercicio en curso, sin rótulo de "Siguiente"', async () => {
     const warm = makeExercise({ id: 'w', exercise_type: 'warmup', duration_seconds: 45, order_num: 1 });
     const squat = makeExercise({ id: 's1', exercise_name: 'Sentadilla Frontal', exercise_type: 'strength', order_num: 2 });
     const session = makeSession({ scheduled_date: todayISO(), session_exercises: [warm, squat] });
@@ -163,6 +163,69 @@ describe('Plans — sesión activa', () => {
     await screen.findByText('Calentamiento');
     expect(document.querySelector('[aria-current="step"]')).toBeNull();
     expect(screen.queryByText(/siguiente/i)).not.toBeInTheDocument();
+  });
+
+  describe('reiniciar la semana', () => {
+    /** Plan de hoy con un ejercicio ya hecho: lo que se quiere deshacer. */
+    function planConAvance() {
+      const session = makeSession({ scheduled_date: todayISO() });
+      session.session_exercises[0].completed = true;
+      return { session, plan: makePlan({ workout_sessions: [session] }) };
+    }
+
+    it('pide confirmación, reinicia en el backend, borra el cronómetro local y recarga', async () => {
+      const { session, plan } = planConAvance();
+      mockApi({ plan });
+      api.post.mockResolvedValue({ week: 1, reset_sessions: 1 });
+      localStorage.setItem(`workout_elapsed_${session.id}`, '50000');
+      renderPlans();
+
+      await userEvent.click(await screen.findByRole('button', { name: /reiniciar esta semana desde cero/i }));
+      // Nada se toca hasta confirmar.
+      expect(api.post).not.toHaveBeenCalled();
+
+      await userEvent.click(screen.getByRole('button', { name: /sí, reiniciar/i }));
+
+      await waitFor(() => expect(api.post).toHaveBeenCalledWith('/workouts/plan/reset-week', {}));
+      expect(localStorage.getItem(`workout_elapsed_${session.id}`)).toBeNull();
+      // Recarga el plan para pintar la semana como nueva.
+      await waitFor(() =>
+        expect(api.get.mock.calls.filter(([path]) => path === '/workouts/plan').length).toBeGreaterThanOrEqual(2),
+      );
+    });
+
+    it('cancelar no llama al backend', async () => {
+      const { plan } = planConAvance();
+      mockApi({ plan });
+      renderPlans();
+
+      await userEvent.click(await screen.findByRole('button', { name: /reiniciar esta semana desde cero/i }));
+      await userEvent.click(screen.getByRole('button', { name: /cancelar/i }));
+
+      expect(api.post).not.toHaveBeenCalled();
+      expect(screen.getByRole('button', { name: /reiniciar esta semana desde cero/i })).toBeInTheDocument();
+    });
+
+    it('no se puede reiniciar con un entrenamiento en curso', async () => {
+      const { session, plan } = planConAvance();
+      mockApi({ plan });
+      renderPlans({ runningSession: session, liveCompleted: new Set() });
+
+      expect(await screen.findByRole('button', { name: /reiniciar esta semana desde cero/i })).toBeDisabled();
+      expect(screen.getByText(/termina o cierra el entrenamiento en curso/i)).toBeInTheDocument();
+    });
+
+    it('muestra el error si el backend falla', async () => {
+      const { plan } = planConAvance();
+      mockApi({ plan });
+      api.post.mockRejectedValue(new Error('No se pudo reiniciar la semana'));
+      renderPlans();
+
+      await userEvent.click(await screen.findByRole('button', { name: /reiniciar esta semana desde cero/i }));
+      await userEvent.click(screen.getByRole('button', { name: /sí, reiniciar/i }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo reiniciar la semana');
+    });
   });
 
   it('inicia el entrenamiento de la sesión activa', async () => {
@@ -200,12 +263,12 @@ describe('Plans — sesión activa', () => {
 });
 
 describe('Plans — generación con IA', () => {
-  it('envía las preferencias reales del perfil al regenerar', async () => {
-    mockApi({ plan: makePlan(), profile: makeProfile() });
+  it('envía las preferencias reales del perfil al generar el plan', async () => {
+    mockApi({ plan: null, profile: makeProfile() });
     api.post.mockResolvedValue({ plan_id: 'p2' });
     renderPlans();
 
-    await userEvent.click(await screen.findByRole('button', { name: /regenerar plan con ia/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /generar plan con ia/i }));
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith(
       '/ai/generate-plan',

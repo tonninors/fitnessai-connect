@@ -3,8 +3,8 @@ import { requireAuth } from '../middleware/auth.js';
 import { getSupabase } from '../config/supabase.js';
 import { asyncHandler, throwOnSupabaseError, badRequest, forbidden, notFound } from '../lib/http.js';
 import { optionalInt, optionalNumber, requireUuid } from '../lib/validation.js';
-import { todayISO, addDays } from '../lib/dates.js';
-import { computeStreak } from '../lib/streak.js';
+import { todayISO, addDays, daysBetween, isISODate } from '../lib/dates.js';
+import { computeStreak, streakFromDates, levelForStreak, levelNameForLevel } from '../lib/streak.js';
 import { chat } from '../lib/groq.js';
 import {
   ALTERNATIVES_SYSTEM_PROMPT,
@@ -134,6 +134,90 @@ router.get('/upcoming', requireAuth, asyncHandler(async (req, res) => {
 
   throwOnSupabaseError(error);
   res.json(data || []);
+}));
+
+// POST reiniciar desde cero la semana actual del plan activo.
+// Deshace el avance de sus sesiones (estado, ejercicios, series y tiempo
+// entrenado) y las reprograma desde hoy conservando los huecos entre días: si
+// el Día 1 se quedara en su fecha original, Inicio lo mostraría como "próximo
+// entrenamiento" de hace días. La racha se recalcula desde cero.
+router.post('/plan/reset-week', requireAuth, asyncHandler(async (req, res) => {
+  const supabase = getSupabase();
+  const userId = req.user.id;
+
+  const { data: plan, error: planError } = await supabase
+    .from('workout_plans')
+    .select('id, current_week')
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  throwOnSupabaseError(planError);
+  if (!plan) throw notFound('No tienes un plan activo');
+
+  const week = Number.isInteger(plan.current_week) && plan.current_week > 0 ? plan.current_week : 1;
+  const { data: sessions, error: sessionsError } = await supabase
+    .from('workout_sessions')
+    .select('id, scheduled_date')
+    .eq('plan_id', plan.id)
+    .eq('user_id', userId)
+    .eq('week_number', week);
+  throwOnSupabaseError(sessionsError);
+  if (!sessions?.length) throw notFound('Esta semana no tiene sesiones');
+
+  const today = todayISO();
+  const dates = sessions.map(s => s.scheduled_date).filter(isISODate).sort();
+  const shift = dates.length ? daysBetween(dates[0], today) : 0;
+  const sessionIds = sessions.map(s => s.id);
+
+  for (const session of sessions) {
+    const { error } = await supabase
+      .from('workout_sessions')
+      .update({
+        status: 'scheduled',
+        completed_at: null,
+        actual_duration: null,
+        actual_calories: null,
+        rpe_actual: null,
+        elapsed_seconds: 0,
+        wearable_data: {},
+        ...(isISODate(session.scheduled_date) ? { scheduled_date: addDays(session.scheduled_date, shift) } : {}),
+      })
+      .eq('id', session.id)
+      .eq('user_id', userId);
+    throwOnSupabaseError(error);
+  }
+
+  const { data: exercises, error: exercisesError } = await supabase
+    .from('session_exercises')
+    .select('id')
+    .in('session_id', sessionIds);
+  throwOnSupabaseError(exercisesError);
+  const exerciseIds = (exercises ?? []).map(e => e.id);
+
+  if (exerciseIds.length) {
+    const { error: setsError } = await supabase
+      .from('session_sets')
+      .delete()
+      .in('session_exercise_id', exerciseIds);
+    throwOnSupabaseError(setsError);
+
+    const { error: toggleError } = await supabase
+      .from('session_exercises')
+      .update({ completed: false })
+      .in('session_id', sessionIds);
+    throwOnSupabaseError(toggleError);
+  }
+
+  const streak = await recomputeStreak(supabase, userId, today);
+
+  res.json({
+    week,
+    reset_sessions: sessionIds.length,
+    start_date: dates.length ? addDays(dates[0], shift) : today,
+    streak: streak.current_streak,
+  });
 }));
 
 // POST iniciar sesión
@@ -418,6 +502,29 @@ export async function updateStreak(supabase, userId, { excludeSessionId = null, 
 
   const { error } = await supabase.from('profiles').update(next).eq('id', userId);
   if (error) console.error('[workouts] no se pudo actualizar la racha:', error.message);
+
+  return next;
+}
+
+/**
+ * Recalcula la racha desde cero con las fechas de las sesiones completadas.
+ * `updateStreak` sólo sabe sumar al completar; al deshacer progreso hay que
+ * volver a contar. El récord (`longest_streak`) no se toca: es histórico.
+ */
+async function recomputeStreak(supabase, userId, today = todayISO()) {
+  const { data, error } = await supabase
+    .from('workout_sessions')
+    .select('scheduled_date')
+    .eq('user_id', userId)
+    .eq('status', 'completed');
+  if (error) throwOnSupabaseError(error);
+
+  const streak = streakFromDates((data ?? []).map(s => s.scheduled_date), today);
+  const level = levelForStreak(streak);
+  const next = { current_streak: streak, level, level_name: levelNameForLevel(level) };
+
+  const { error: updateError } = await supabase.from('profiles').update(next).eq('id', userId);
+  if (updateError) console.error('[workouts] no se pudo recalcular la racha:', updateError.message);
 
   return next;
 }
