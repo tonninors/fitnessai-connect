@@ -41,3 +41,10 @@ frontend/coverage/
 
 # Herramientas locales (p. ej. cloudflared para túneles de prueba)
 .tools/
+
+# Herramientas de agentes de IA (locales de cada máquina, no son de la app)
+.agents/
+skills/
+skills-lock.json
+.codex/
+.impeccable/
