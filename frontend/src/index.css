@@ -82,6 +82,35 @@ body {
 }
 .screen::-webkit-scrollbar { display: none; }
 
+/* Bloque de la sesión que se contrae al terminarse. grid-template-rows anima
+   la altura real sin medirla en JS ni animar height. */
+.block-collapse {
+  display: grid; grid-template-rows: 1fr;
+  transition: grid-template-rows 0.34s cubic-bezier(.16,1,.3,1), opacity 0.24s ease;
+}
+.block-collapse.is-collapsed { grid-template-rows: 0fr; opacity: 0; }
+.block-collapse-inner { min-height: 0; overflow: hidden; }
+.block-done-card { transition: border-color 0.2s; }
+.block-done-card:hover { border-color: #3a3a3a; }
+.block-done-card:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+/* El check "se asienta" cuando la tarjeta aparece en lugar de la lista. */
+.block-collapse:not(.is-collapsed) .block-done-card svg { animation: check-settle 0.45s cubic-bezier(.16,1,.3,1) 0.1s both; }
+@keyframes check-settle { from { opacity: 0; transform: scale(0.5); } to { opacity: 1; transform: scale(1); } }
+
+/* Pantallas + navegación. Al abrir el entrenamiento retrocede detrás de la
+   hoja (misma curva que la hoja), para que se lea como una capa encima de la
+   app y no como otra pantalla. Sin transform en reposo: un transform
+   permanente cambiaría el contenedor de los elementos fixed. */
+.app-stage {
+  position: absolute; inset: 0;
+  transform-origin: 50% 0;
+  transition: transform 0.4s cubic-bezier(.32,.72,0,1), border-radius 0.4s cubic-bezier(.32,.72,0,1);
+}
+.app-stage.is-recessed {
+  transform: translateY(12px) scale(0.94);
+  border-radius: 20px; overflow: hidden;
+}
+
 /* ── BOTTOM NAV ── */
 .bottom-nav {
   position: absolute; bottom: 0; left: 0; right: 0;
@@ -261,10 +290,6 @@ body {
   transition: transform 0.3s; box-shadow: 0 1px 4px rgba(0,0,0,0.3);
 }
 .toggle.on::after { transform: translateX(18px); }
-
-/* ── PROGRESS BAR ── */
-.progress-bar-bg { background: var(--color-surface2); border-radius: 6px; height: 6px; overflow: hidden; }
-.progress-bar-fill { height: 100%; border-radius: 6px; background: var(--color-accent); transition: width 0.5s; }
 
 /* ── PHONE SCENE ── */
 .phone-scene { display: flex; justify-content: center; align-items: flex-start; width: 100%; }
