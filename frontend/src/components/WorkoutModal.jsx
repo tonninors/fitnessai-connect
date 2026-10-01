@@ -418,24 +418,34 @@ export default function WorkoutModal({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [visible, onMinimize, altOpen]);
 
-  if (!visible) return null;
-
   const sessionTitle = session?.day_order ? `Día ${session.day_order}` : session?.name;
   const activeEx = activeExId ? exercises.find(e => e.id === activeExId) : null;
 
+  // Minimizar no desmonta el componente (el cronómetro sigue vivo): solo la
+  // hoja sale, deslizándose hacia la barra "En vivo" que la sustituye. Las
+  // transiciones CSS de .modal-overlay/.modal-sheet se anulan aquí porque
+  // Framer anima los mismos valores cuadro a cuadro.
   return (
-    <div
+    <AnimatePresence>
+    {visible && (
+    <motion.div
+      key="workout-overlay"
       className="modal-overlay open"
+      style={{ transition: 'none' }}
       onClick={e => { if (e.target === e.currentTarget) onMinimize?.(); }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1, transition: { duration: 0.3 } }}
+      exit={{ opacity: 0, transition: { duration: 0.22 } }}
     >
       <motion.div
         className="modal-sheet relative"
+        style={{ transition: 'none' }}
         role="dialog"
         aria-modal="true"
         aria-label={`Entrenamiento en curso: ${sessionTitle ?? 'sesión'}`}
         initial={{ y: '100%' }}
-        animate={{ y: 0 }}
-        transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+        animate={{ y: 0, transition: { type: 'spring', damping: 32, stiffness: 300 } }}
+        exit={{ y: '100%', transition: { duration: 0.24, ease: [0.32, 0, 0.67, 0] } }}
       >
         <div className="modal-handle" />
 
@@ -601,7 +611,9 @@ export default function WorkoutModal({
           {restState && <RestOverlay state={restState} onDismiss={dismissRest} />}
         </AnimatePresence>
       </motion.div>
-    </div>
+    </motion.div>
+    )}
+    </AnimatePresence>
   );
 }
 
@@ -853,16 +865,16 @@ function AlternativesPanel({ panel, onChoose, onRetry, onDismiss }) {
       aria-label="Ejercicios alternativos"
       aria-busy={busy}
     >
-      <div className="flex items-center gap-2 mb-2.5">
-        <p className="text-[10px] text-accent font-semibold uppercase tracking-wider">Alternativas</p>
+      <div className="flex items-center gap-2 mb-3">
+        <h3 className="text-sm font-semibold text-txt">Alternativas</h3>
         <div className="flex-1" />
         <button
           type="button"
-          className="w-6 h-6 rounded-md bg-surface flex items-center justify-center border-none cursor-pointer"
+          className="w-8 h-8 rounded-lg bg-surface flex items-center justify-center border-none cursor-pointer"
           onClick={onDismiss}
           aria-label="Cerrar alternativas"
         >
-          <X size={12} className="text-txt3" aria-hidden="true" />
+          <X size={14} className="text-txt2" aria-hidden="true" />
         </button>
       </div>
 
@@ -874,21 +886,21 @@ function AlternativesPanel({ panel, onChoose, onRetry, onDismiss }) {
       )}
 
       {panel.status === 'loading' && (
-        <p className="flex items-center gap-2 text-xs text-txt3 py-2" role="status">
+        <p className="flex items-center gap-2 text-[13px] text-txt2 py-2" role="status">
           <Loader2 size={13} className="text-accent animate-spin" aria-hidden="true" />
           Buscando alternativas…
         </p>
       )}
 
       {panel.status === 'applying' && (
-        <p className="flex items-center gap-2 text-xs text-txt3 py-2" role="status">
+        <p className="flex items-center gap-2 text-[13px] text-txt2 py-2" role="status">
           <Loader2 size={13} className="text-accent animate-spin" aria-hidden="true" />
           Cambiando el ejercicio…
         </p>
       )}
 
       {panel.status === 'empty' && (
-        <p className="text-xs text-txt3 py-1">
+        <p className="text-[13px] text-txt2 leading-normal py-1">
           No encontramos alternativas para este ejercicio. Continúa con el actual.
         </p>
       )}
@@ -923,35 +935,39 @@ function AlternativeOption({ alt, onChoose }) {
     <li className="rounded-xl border border-border bg-surface overflow-hidden">
       <button
         type="button"
-        className="w-full text-left px-3 py-2.5 bg-transparent border-none cursor-pointer"
+        className="w-full text-left px-3 py-2.5 bg-transparent border-none cursor-pointer focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2 focus-visible:rounded-xl"
         onClick={() => setOpen(o => !o)}
         aria-expanded={open}
         aria-controls={detailId}
       >
+        {/* Cerrada, la fila solo dice qué ejercicio es y cuánto se parece;
+            el porqué y el equipo van en el desglose. */}
         <span className="flex items-center gap-2">
-          <span className="flex-1 min-w-0 text-xs font-semibold text-txt leading-snug">{alt.name}</span>
+          <span className="flex-1 min-w-0 text-[13px] font-semibold text-txt leading-snug">{alt.name}</span>
           {alt.score !== null && alt.score !== undefined && (
-            <span className="text-[11px] font-bold text-accent shrink-0">{alt.score}%</span>
+            <span className="font-metric text-base font-bold text-txt2 leading-none tabular-nums shrink-0">
+              {`${alt.score}%`}
+            </span>
           )}
           <ChevronDown
-            size={13}
-            className={`text-txt3 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+            size={14}
+            className={`text-txt2 shrink-0 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
             aria-hidden="true"
           />
         </span>
+      </button>
+
+      <div id={detailId} hidden={!open} className="px-3 pb-3">
         {alt.reason && (
-          <span className="block text-[10px] text-txt3 mt-0.5 leading-relaxed">{alt.reason}</span>
+          <p className="text-xs text-txt2 leading-normal mb-2">{alt.reason}</p>
         )}
         {/* `equipment` es un array: sin unirlo, React concatena los
             elementos y se lee "mancuernasbanco". */}
         {equipmentLabel(alt.equipment) && (
-          <span className="inline-block text-[10px] text-txt2 bg-surface2 rounded px-1.5 py-0.5 mt-1.5">
+          <p className="inline-block text-xs text-txt2 bg-surface2 rounded-md px-2 py-0.5 mb-3">
             {equipmentLabel(alt.equipment)}
-          </span>
+          </p>
         )}
-      </button>
-
-      <div id={detailId} hidden={!open} className="px-3 pb-3">
         {alt.breakdown && (
           <dl className="flex flex-col gap-1.5 mb-3">
             <ScoreRow label="Músculos" value={alt.breakdown.muscular} />
@@ -977,12 +993,12 @@ function ScoreRow({ label, value }) {
   const known = value !== null && value !== undefined;
   return (
     <div className="flex items-center gap-2">
-      <dt className="text-[10px] text-txt3 w-20 shrink-0">{label}</dt>
-      <dd className="flex-1 flex items-center gap-2 m-0">
+      <dt className="text-xs text-txt2 w-24 shrink-0">{label}</dt>
+      <dd className="flex-1 flex items-center gap-2.5 m-0">
         <span className="flex-1 h-1 rounded-full bg-surface2 overflow-hidden">
           <span className="block h-full bg-accent rounded-full" style={{ width: known ? `${value}%` : 0 }} />
         </span>
-        <span className="text-[10px] text-txt2 font-medium w-8 text-right">{known ? `${value}%` : '—'}</span>
+        <span className="text-xs text-txt font-medium tabular-nums w-9 text-right">{known ? `${value}%` : '—'}</span>
       </dd>
     </div>
   );

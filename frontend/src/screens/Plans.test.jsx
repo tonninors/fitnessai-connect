@@ -155,6 +155,29 @@ describe('Plans — sesión activa', () => {
     expect(screen.queryByText(/siguiente/i)).not.toBeInTheDocument();
   });
 
+  it('contrae el bloque terminado y lo vuelve a abrir al tocar su cabecera', async () => {
+    const warm1 = makeExercise({ id: 'w1', exercise_name: 'Gato-Camello', exercise_type: 'warmup', duration_seconds: 45, order_num: 1 });
+    const warm2 = makeExercise({ id: 'w2', exercise_name: 'Rotaciones Torácicas', exercise_type: 'warmup', duration_seconds: 45, order_num: 2 });
+    const squat = makeExercise({ id: 's1', exercise_name: 'Sentadilla Frontal', exercise_type: 'strength', order_num: 3 });
+    const session = makeSession({ scheduled_date: todayISO(), session_exercises: [warm1, warm2, squat] });
+    mockApi({ plan: makePlan({ workout_sessions: [session] }) });
+    renderPlans({ runningSession: session, liveCompleted: new Set(['w1', 'w2']) });
+
+    const cabecera = await screen.findByRole('button', { name: /calentamiento/i });
+    expect(cabecera).toHaveAttribute('aria-expanded', 'false');
+    // En lugar de la lista, una tarjeta corta de bloque terminado.
+    expect(screen.getByText('Bloque completado')).toBeInTheDocument();
+    expect(screen.getByText('2 de 2 ejercicios')).toBeInTheDocument();
+    // El bloque pendiente sigue abierto y sin cabecera desplegable.
+    expect(screen.queryByRole('button', { name: /^entrenamiento/i })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /bloque completado/i }));
+    expect(cabecera).toHaveAttribute('aria-expanded', 'true');
+
+    await userEvent.click(cabecera);
+    expect(cabecera).toHaveAttribute('aria-expanded', 'false');
+  });
+
   it('sin entrenamiento en curso no resalta ninguna fila', async () => {
     const session = makeSession({ scheduled_date: todayISO() });
     mockApi({ plan: makePlan({ workout_sessions: [session] }) });

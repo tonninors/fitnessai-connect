@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Home as HomeIcon, Dumbbell, TrendingUp, MessageCircle, User, ChevronUp } from 'lucide-react';
 import { supabase, api } from './api/client.js';
 import Login from './screens/Login.jsx';
@@ -38,10 +38,25 @@ const SCREENS = { home: Home, plans: Plans, progress: Progress, profile: Profile
 
 const CLOCK_REFRESH_MS = 10_000;
 
+// Curvas compartidas: llegada que frena con decisión, salida que acelera. La
+// salida siempre es más corta que la entrada para que cambiar de pestaña no
+// se sienta como esperar.
+const EASE_OUT = [0.16, 1, 0.3, 1];
+const EASE_IN = [0.4, 0, 1, 1];
+const EASE_SHEET = [0.32, 0.72, 0, 1];
+const NAV_INDEX = Object.fromEntries(NAV.map(({ id }, i) => [id, i]));
+
+// Las pestañas se deslizan hacia el lado en que está la de destino en la barra
+// inferior: de Inicio a Perfil entra desde la derecha; al volver, desde la
+// izquierda. Sin dirección conocida (o con movimiento reducido) solo funden.
 const pageVariants = {
-  initial: { opacity: 0, y: 12 },
-  animate: { opacity: 1, y: 0, transition: { duration: 0.25, ease: 'easeOut' } },
-  exit:    { opacity: 0, y: -8, transition: { duration: 0.15 } },
+  initial: ({ dir, reduce }) => (reduce ? { opacity: 0 } : dir ? { opacity: 0, x: dir * 28 } : { opacity: 0, y: 10 }),
+  animate: { opacity: 1, x: 0, y: 0, transition: { duration: 0.32, ease: EASE_OUT } },
+  exit: ({ dir, reduce }) => ({
+    opacity: 0,
+    x: reduce || !dir ? 0 : dir * -20,
+    transition: { duration: 0.16, ease: EASE_IN },
+  }),
 };
 
 export default function App() {
@@ -54,6 +69,8 @@ export default function App() {
   const [retryToken, setRetryToken] = useState(0);
   const [isTrainer, setIsTrainer] = useState(false);
   const [activeScreen, setActiveScreen] = useState('home');
+  const [navDir, setNavDir] = useState(0);
+  const reduceMotion = useReducedMotion();
 
   const [activeSession, setActiveSession] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
@@ -132,6 +149,17 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
+  const navigate = useCallback((next) => {
+    if (next === activeScreen) return;
+    const from = NAV_INDEX[activeScreen];
+    const to = NAV_INDEX[next];
+    // El panel coach se abre "hacia delante" desde Perfil y se cierra hacia atrás.
+    if (next === 'coach') setNavDir(1);
+    else if (activeScreen === 'coach') setNavDir(-1);
+    else setNavDir(from !== undefined && to !== undefined ? Math.sign(to - from) : 0);
+    setActiveScreen(next);
+  }, [activeScreen]);
+
   const startWorkout = useCallback((workoutSession) => {
     setActiveSession(workoutSession);
     setModalVisible(true);
@@ -180,6 +208,9 @@ export default function App() {
 
   const showCoach = isTrainer && activeScreen === 'coach';
   const onboardingDone = !!profile?.onboarding_completed;
+  const motionCtx = { dir: navDir, reduce: !!reduceMotion };
+  // Con el entrenamiento abierto, la app retrocede detrás de la hoja.
+  const recessed = !!activeSession && modalVisible;
 
   return (
     <div className="phone-scene">
@@ -204,20 +235,32 @@ export default function App() {
             </div>
           ) : (
             <>
-              {showCoach && (
-                <div className="screen" style={{ opacity: 1, pointerEvents: 'all', zIndex: 100 }}>
-                  <div className="px-5 pt-2">
-                    <button type="button" className="btn btn-surface btn-sm w-auto" onClick={() => setActiveScreen('profile')}>
-                      ← Volver
-                    </button>
-                  </div>
-                  <Suspense fallback={<ScreenFallback />}>
-                    <DashboardCoach userId={session.user.id} />
-                  </Suspense>
-                </div>
-              )}
+              <div className={`app-stage${recessed ? ' is-recessed' : ''}`} aria-hidden={recessed || undefined}>
+              <AnimatePresence>
+                {showCoach && (
+                  <motion.div
+                    key="coach"
+                    className="screen"
+                    style={{ pointerEvents: 'all', zIndex: 100 }}
+                    initial={reduceMotion ? { opacity: 0 } : { x: '100%' }}
+                    animate={{ x: 0, opacity: 1, transition: { duration: 0.36, ease: EASE_SHEET } }}
+                    exit={reduceMotion
+                      ? { opacity: 0, transition: { duration: 0.16 } }
+                      : { x: '100%', transition: { duration: 0.24, ease: EASE_IN } }}
+                  >
+                    <div className="px-5 pt-2">
+                      <button type="button" className="btn btn-surface btn-sm w-auto" onClick={() => navigate('profile')}>
+                        ← Volver
+                      </button>
+                    </div>
+                    <Suspense fallback={<ScreenFallback />}>
+                      <DashboardCoach userId={session.user.id} />
+                    </Suspense>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
-              <AnimatePresence mode="wait">
+              <AnimatePresence custom={motionCtx}>
                 {NAV.map(({ id }) => {
                   if (activeScreen !== id) return null;
 
@@ -226,7 +269,8 @@ export default function App() {
                       <motion.div
                         key="chat"
                         className="screen screen--chat"
-                        style={{ opacity: 1, pointerEvents: 'all' }}
+                        style={{ pointerEvents: 'all' }}
+                        custom={motionCtx}
                         variants={pageVariants} initial="initial" animate="animate" exit="exit"
                       >
                         <Chat
@@ -243,13 +287,14 @@ export default function App() {
                     <motion.div
                       key={id}
                       className="screen"
-                      style={{ opacity: 1, pointerEvents: 'all' }}
+                      style={{ pointerEvents: 'all' }}
+                      custom={motionCtx}
                       variants={pageVariants} initial="initial" animate="animate" exit="exit"
                     >
                       <Suspense fallback={<ScreenFallback />}>
                       <Screen
                         onStartWorkout={startWorkout}
-                        onNavigate={setActiveScreen}
+                        onNavigate={navigate}
                         isTrainer={isTrainer}
                         runningSession={activeSession}
                         onResumeWorkout={() => setModalVisible(true)}
@@ -271,7 +316,7 @@ export default function App() {
                       <button
                         key={id}
                         type="button"
-                        onClick={() => setActiveScreen(id)}
+                        onClick={() => navigate(id)}
                         aria-current={isActive ? 'page' : undefined}
                         className="flex flex-col items-center gap-1 flex-1 pt-2 bg-transparent border-none cursor-pointer relative"
                       >
@@ -295,10 +340,16 @@ export default function App() {
               )}
 
               {/* Barra del entrenamiento minimizado */}
+              {/* Aparece cuando la hoja ya bajó: es la misma sesión, aparcada. */}
+              <AnimatePresence>
               {activeSession && !modalVisible && (
-                <button
+                <motion.button
+                  key="mini-bar"
                   type="button"
                   className="absolute bottom-[80px] left-0 right-0 z-[70] px-4 pb-2 bg-transparent border-none cursor-pointer"
+                  initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 24 }}
+                  animate={{ opacity: 1, y: 0, transition: { duration: 0.3, ease: EASE_OUT, delay: 0.12 } }}
+                  exit={{ opacity: 0, transition: { duration: 0.12 } }}
                   onClick={() => setModalVisible(true)}
                   aria-label={`Volver al entrenamiento ${sessionFocusTitle(activeSession)}`}
                 >
@@ -318,8 +369,10 @@ export default function App() {
                     </span>
                     <ChevronUp size={16} className="text-accent shrink-0" aria-hidden="true" />
                   </span>
-                </button>
+                </motion.button>
               )}
+              </AnimatePresence>
+              </div>
 
               {/* El modal se mantiene montado mientras haya sesión activa para
                   que el cronómetro no se reinicie al minimizar. */}

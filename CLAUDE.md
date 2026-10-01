@@ -178,7 +178,9 @@ There are **no** `/auth/signup`, `/auth/signin`, `/auth/signout` or `/auth/reset
 --font-body:       'Inter'   --font-metric:      'Barlow Condensed'
 ```
 
-Dark theme, `1px solid #2A2A2A` borders, no box-shadows. Reference: "Nike Training Club meets Strong app". Framer Motion for transitions, Recharts for the weekly volume chart.
+Dark theme, `1px solid #2A2A2A` borders, no box-shadows — the only exception is the orange glow on the primary CTA (`.btn-primary`). Depth comes from surface steps (`bg` → `surface` → `surface2`), not shadows. Reference: "Nike Training Club meets Strong app". Framer Motion for transitions, Recharts for the weekly volume chart.
+
+**`DESIGN.md`** (repo root) is the visual source of truth: named color roles, type hierarchy (every hero number in Barlow Condensed), radii, components and the named rules (one orange "lamp" per screen, green = done / blue = rest / red = live). **`PRODUCT.md`** holds users, positioning (built for LATAM) and product principles. Read both before designing a new screen.
 
 **Data**
 - Use realistic Spanish content for exercises and users — never placeholder text.

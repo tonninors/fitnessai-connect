@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, Play, Check, Calendar, Trophy, CheckCircle2, X, Clock, Zap, Dumbbell, Timer, RotateCcw } from 'lucide-react';
+import { Sparkles, Play, Check, Calendar, Trophy, CheckCircle2, X, Clock, Zap, Dumbbell, Timer, RotateCcw, ChevronDown } from 'lucide-react';
 import { api } from '../api/client.js';
 import { useApiData } from '../hooks/useApiData.js';
 import ErrorState from '../components/ErrorState.jsx';
@@ -242,25 +242,8 @@ export default function Plans({ onStartWorkout, runningSession, onResumeWorkout,
 
           {exList.length > 0 && (
             <div className="section pt-0">
-              {groupByBlock(exList).map(({ type, label, colorClass, dotClass, exercises }) => (
-                <section key={type} className="mb-3" aria-label={label}>
-                  <div className="flex items-center gap-2 px-1 mb-2">
-                    <span className={`w-2 h-2 rounded-full ${dotClass}`} />
-                    <span className={`text-[11px] font-bold uppercase tracking-wider ${colorClass}`}>{label}</span>
-                  </div>
-                  <ul className="card !p-0 overflow-hidden list-none">
-                    {exercises.map((ex, i) => (
-                      <ExerciseRow
-                        key={ex.id}
-                        exercise={ex}
-                        index={i + 1}
-                        type={type}
-                        isDone={done.has(ex.id)}
-                        isCurrent={ex.id === currentExId}
-                      />
-                    ))}
-                  </ul>
-                </section>
+              {groupByBlock(exList).map(block => (
+                <BlockSection key={block.type} block={block} done={done} currentExId={currentExId} />
               ))}
 
               {allExercisesDone && !isCompleted && !runningSession && (
@@ -371,6 +354,94 @@ function PlansSkeleton() {
  * la izquierda, el mismo recurso de la tarjeta de hoy), sin rótulos ni
  * contornos. El `pl` compensa los 3 px de la barra para que el texto no salte.
  */
+/**
+ * Un bloque de la sesión. Cuando todos sus ejercicios están hechos, la lista
+ * se cambia por una tarjeta corta de "Bloque completado", para que lo que
+ * queda por hacer quepa sin bajar; tocar la tarjeta o la cabecera la abre.
+ * Ambas piezas siguen en el DOM (la oculta, inerte) para que la altura pueda
+ * animarse con grid-template-rows.
+ */
+function BlockSection({ block, done, currentExId }) {
+  const { type, label, colorClass, dotClass, exercises } = block;
+  const [expanded, setExpanded] = useState(false);
+  const doneCount = exercises.filter(ex => done.has(ex.id)).length;
+  const blockDone = exercises.length > 0 && doneCount === exercises.length;
+  const collapsed = blockDone && !expanded;
+  const listId = `bloque-${type}`;
+
+  const heading = (
+    <>
+      <span className={`w-2 h-2 rounded-full ${dotClass}`} aria-hidden="true" />
+      <span className={`text-[11px] font-bold uppercase tracking-wider ${colorClass}`}>{label}</span>
+    </>
+  );
+
+  return (
+    <section className="mb-3" aria-label={label}>
+      {blockDone ? (
+        <button
+          type="button"
+          className="w-full flex items-center gap-2 px-1 py-1 bg-transparent border-none cursor-pointer text-left"
+          onClick={() => setExpanded(e => !e)}
+          aria-expanded={!collapsed}
+          aria-controls={listId}
+        >
+          {heading}
+          <span className="flex-1" />
+          <ChevronDown
+            size={14}
+            className={`text-txt2 transition-transform duration-300 ${collapsed ? '' : 'rotate-180'}`}
+            aria-hidden="true"
+          />
+        </button>
+      ) : (
+        <div className="flex items-center gap-2 px-1 py-1">{heading}</div>
+      )}
+
+      {blockDone && (
+        <div className={`block-collapse${collapsed ? '' : ' is-collapsed'}`} {...(collapsed ? {} : { inert: '' })}>
+          <div className="block-collapse-inner">
+            <button
+              type="button"
+              className="block-done-card w-full flex items-center gap-3 mt-1 px-4 py-3 rounded-2xl border border-border bg-surface cursor-pointer text-left"
+              onClick={() => setExpanded(true)}
+              aria-expanded={false}
+              aria-controls={listId}
+            >
+              <span className="w-8 h-8 rounded-lg bg-green-dim text-green flex items-center justify-center shrink-0">
+                <Check size={16} strokeWidth={2.5} aria-hidden="true" />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-semibold text-txt leading-snug">Bloque completado</span>
+                <span className="block text-xs text-txt2 mt-0.5 tabular-nums">
+                  {doneCount} de {exercises.length} ejercicios
+                </span>
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className={`block-collapse${collapsed ? ' is-collapsed' : ''}`} {...(collapsed ? { inert: '' } : {})}>
+        <div className="block-collapse-inner">
+        <ul id={listId} className="card !p-0 overflow-hidden list-none mt-1">
+          {exercises.map((ex, i) => (
+            <ExerciseRow
+              key={ex.id}
+              exercise={ex}
+              index={i + 1}
+              type={type}
+              isDone={done.has(ex.id)}
+              isCurrent={ex.id === currentExId}
+            />
+          ))}
+        </ul>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ExerciseRow({ exercise, index, type, isDone, isCurrent }) {
   const timed = isTimed(exercise);
 
