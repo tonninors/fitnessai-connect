@@ -1,6 +1,30 @@
 # FitnessAI Connect
 
-Plataforma de fitness que conecta entrenadores personales con usuarios mediante entrenamientos personalizados potenciados por IA. Mercado objetivo: LATAM (México, Argentina, Colombia).
+[![Licencia: MIT](https://img.shields.io/badge/licencia-MIT-FF5733.svg)](./LICENSE)
+![React 18](https://img.shields.io/badge/React-18-222222?logo=react)
+![Node 18+](https://img.shields.io/badge/Node-18%2B-222222?logo=node.js)
+![Supabase](https://img.shields.io/badge/Supabase-Postgres%20%2B%20Auth-222222?logo=supabase)
+
+Plataforma de fitness **open source** que conecta entrenadores personales con usuarios mediante entrenamientos personalizados potenciados por IA. Pensada para LATAM (México, Argentina, Colombia): toda la interfaz está en español.
+
+<p align="center">
+  <img src="docs/screenshots/inicio.png" width="200" alt="Pantalla de inicio con el próximo entrenamiento y los anillos de actividad del día" />
+  <img src="docs/screenshots/plan.png" width="200" alt="Plan del día dividido en calentamiento, entrenamiento, cardio y estiramiento" />
+  <img src="docs/screenshots/sesion-en-vivo.png" width="200" alt="Sesión en vivo con cronómetro, calorías y el ejercicio actual" />
+  <img src="docs/screenshots/progreso.png" width="200" alt="Resumen de progreso con racha, métricas del mes y volumen semanal" />
+  <img src="docs/screenshots/perfil.png" width="200" alt="Perfil con wearables, objetivos y disponibilidad" />
+</p>
+
+<p align="center"><sub>Inicio · Plan del día · Sesión en vivo · Progreso · Perfil</sub></p>
+
+## Qué hace
+
+- **Plan semanal generado por IA** (Groq · LLaMA 4 Scout) a partir del onboarding: objetivo, días disponibles, minutos por sesión y equipo. Cada sesión se divide en calentamiento, fuerza, cardio y estiramiento, con descansos según el tipo de ejercicio.
+- **Sesión en vivo**: cronómetro con hora de reloj que sobrevive a recargas y cambios de dispositivo, registro serie a serie, temporizador de descanso y calorías estimadas por RPE.
+- **Sustitución de ejercicios** ("No puedo hacer este ejercicio"): el ranking de alternativas lo calcula una huella biomecánica determinista sobre un catálogo de ~150 ejercicios, no la IA.
+- **Progreso**: racha, niveles, métricas del mes y gráfica de volumen semanal (4 semanas, 3 meses, 1 año).
+- **Wearables**: Apple Watch, Garmin, Google Fit y Fitbit. Sin wearable, la frecuencia cardiaca se muestra vacía en lugar de simularse.
+- **Entrenadores**: chat en tiempo real entrenador ↔ usuario (Supabase Realtime) y panel de entrenador.
 
 ---
 
@@ -238,11 +262,36 @@ Ver [`COMPONENTES-PENDIENTES.md`](./COMPONENTES-PENDIENTES.md) para el roadmap c
 
 ## Deploy
 
+La app se despliega como **un solo servicio**: Express sirve la API en `/api/*` y el build de la SPA en el resto de rutas. El repo trae `railway.json` listo para Railway:
+
+```bash
+npm run build:deploy   # instala backend + frontend y genera frontend/dist
+npm start              # Express sirve API + SPA
+```
+
 | Servicio | Uso | Free tier |
 |----------|-----|-----------|
-| Vercel | Frontend | Ilimitado (hobby) |
-| Railway | Backend Node.js | $5 crédito/mes |
+| Railway | App (API + SPA) | $5 crédito/mes |
 | Supabase | DB + Auth + Realtime | 500 MB DB, 50 K MAU |
 | Groq | IA LLaMA 4 Scout | 500 K tokens/día |
 
-En producción, definir `NODE_ENV=production` y `FRONTEND_URL` con el dominio real: sin `FRONTEND_URL`, CORS no permite ningún origen.
+Guía completa, variables de entorno y alternativa con frontend en CDN en [`DEPLOY.md`](./DEPLOY.md).
+
+---
+
+## Contribuir
+
+Las contribuciones son bienvenidas. Antes de abrir un PR:
+
+1. Lee [`PRODUCT.md`](./PRODUCT.md) (usuarios y principios del producto) y [`DESIGN.md`](./DESIGN.md) (sistema visual) si tu cambio toca la interfaz.
+2. Todo cambio de lógica de negocio va con su test. `npm test` debe pasar y respetar los umbrales de cobertura.
+3. Los textos de la interfaz y los comentarios del código van en español.
+4. Accesibilidad no negociable: botones reales (`<button>`), `aria-*` en toggles y chips, `<label>` en cada input.
+
+Para bugs e ideas, abre un [issue](https://github.com/tonninors/fitnessai-connect/issues). El roadmap pendiente está en [`COMPONENTES-PENDIENTES.md`](./COMPONENTES-PENDIENTES.md).
+
+---
+
+## Licencia
+
+[MIT](./LICENSE). Puedes usar, modificar y distribuir el código libremente, incluso con fines comerciales, manteniendo el aviso de copyright.
